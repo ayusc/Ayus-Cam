@@ -9,7 +9,6 @@ import android.hardware.Camera;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
-import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.view.LayoutInflater;
 import android.view.Surface;
@@ -48,7 +47,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     
     private boolean isPreviewRunning = false;
 
-    // Launchers for Photo and Video
     private final ActivityResultLauncher<String[]> pickPhotoLauncher = registerForActivityResult(
             new ActivityResultContracts.OpenDocument(), uri -> handleMediaResult(uri, "IMAGE"));
 
@@ -99,7 +97,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
                     ? Camera.CameraInfo.CAMERA_FACING_FRONT 
                     : Camera.CameraInfo.CAMERA_FACING_BACK;
             
-            // Only restart if showing real camera
             if (isPreviewRunning && !config.enabled) {
                 restartPreviewMode();
             }
@@ -114,7 +111,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         
         String realPath = getRealPathFromURI(uri);
         if (realPath == null) {
-            Toast.makeText(requireContext(), "Error: Please select a file from local storage, not a cloud folder.", Toast.LENGTH_LONG).show();
+            Toast.makeText(requireContext(), "Error: Invalid file format or cloud storage.", Toast.LENGTH_LONG).show();
             return;
         }
 
@@ -129,25 +126,79 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         config.mediaPaths.add(realPath);
         config.mediaTypes.add(type);
         config.mediaNames.add(displayName);
-        config.selectedIndex = config.mediaPaths.size() - 1; // Auto-select new item
+        config.selectedIndex = config.mediaPaths.size() - 1;
         config.save();
 
         updateUI();
         restartPreviewMode();
     }
 
-    // Resolves Content URI to Absolute File Path
     private String getRealPathFromURI(Uri uri) {
-        String[] projection = { MediaStore.MediaColumns.DATA };
-        try (Cursor cursor = requireContext().getContentResolver().query(uri, projection, null, null, null)) {
+        if (android.provider.DocumentsContract.isDocumentUri(requireContext(), uri)) {
+            if ("com.android.externalstorage.documents".equals(uri.getAuthority())) {
+                String docId = android.provider.DocumentsContract.getDocumentId(uri);
+                String[] split = docId.split(":");
+                String type = split[0];
+                if ("primary".equalsIgnoreCase(type)) {
+                    return android.os.Environment.getExternalStorageDirectory() + "/" + split[1];
+                } else {
+                    return "/storage/" + type + "/" + split[1];
+                }
+            } else if ("com.android.providers.downloads.documents".equals(uri.getAuthority())) {
+                String id = android.provider.DocumentsContract.getDocumentId(uri);
+                if (id != null && id.startsWith("raw:")) {
+                    return id.substring(4);
+                }
+                String[] contentUriPrefixesToTry = new String[]{
+                        "content://downloads/public_downloads",
+                        "content://downloads/my_downloads"
+                };
+                for (String contentUriPrefix : contentUriPrefixesToTry) {
+                    try {
+                        Uri contentUri = android.content.ContentUris.withAppendedId(android.net.Uri.parse(contentUriPrefix), Long.parseLong(id));
+                        String path = getDataColumn(contentUri, null, null);
+                        if (path != null) return path;
+                    } catch (Exception e) {}
+                }
+            } else if ("com.android.providers.media.documents".equals(uri.getAuthority())) {
+                String docId = android.provider.DocumentsContract.getDocumentId(uri);
+                String[] split = docId.split(":");
+                String type = split[0];
+                Uri contentUri = null;
+                if ("image".equals(type)) {
+                    contentUri = android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+                } else if ("video".equals(type)) {
+                    contentUri = android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+                } else if ("audio".equals(type)) {
+                    contentUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+                }
+                String selection = "_id=?";
+                String[] selectionArgs = new String[]{split[1]};
+                return getDataColumn(contentUri, selection, selectionArgs);
+            }
+        } else if ("content".equalsIgnoreCase(uri.getScheme())) {
+            return getDataColumn(uri, null, null);
+        } else if ("file".equalsIgnoreCase(uri.getScheme())) {
+            return uri.getPath();
+        }
+        return null;
+    }
+
+    private String getDataColumn(Uri uri, String selection, String[] selectionArgs) {
+        Cursor cursor = null;
+        String column = android.provider.MediaStore.MediaColumns.DATA;
+        String[] projection = {column};
+        try {
+            cursor = requireContext().getContentResolver().query(uri, projection, selection, selectionArgs, null);
             if (cursor != null && cursor.moveToFirst()) {
-                int columnIndex = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATA);
-                return cursor.getString(columnIndex);
+                int index = cursor.getColumnIndexOrThrow(column);
+                return cursor.getString(index);
             }
         } catch (Exception e) {
-            e.printStackTrace();
+        } finally {
+            if (cursor != null) cursor.close();
         }
-        return null; // Fallback if URI cannot be resolved to raw path
+        return null;
     }
 
     private void updateUI() {
@@ -155,10 +206,10 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
         if (config.enabled) {
             btnToggleVirtualCam.setText("Disable Virtual Camera");
-            btnToggleVirtualCam.setBackgroundColor(0xFFD32F2F); // Red
+            btnToggleVirtualCam.setBackgroundColor(0xFFD32F2F);
         } else {
             btnToggleVirtualCam.setText("Enable Virtual Camera");
-            btnToggleVirtualCam.setBackgroundColor(0xFF2E7D32); // Green
+            btnToggleVirtualCam.setBackgroundColor(0xFF2E7D32);
         }
 
         if (isPreviewRunning) {
@@ -191,7 +242,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             itemView.setTextSize(14f);
             
             if (config.selectedIndex == index) {
-                itemView.setBackgroundColor(0x33FF2A42); // Highlight active
+                itemView.setBackgroundColor(0x33FF2A42);
                 itemView.setTextColor(Color.WHITE);
             } else {
                 itemView.setBackgroundColor(Color.TRANSPARENT);
@@ -288,7 +339,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     }
 
     private void stopAllPreviews() {
-        // Stop Virtual Video
         if (mediaPlayer != null) {
             try {
                 mediaPlayer.stop();
@@ -297,7 +347,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } catch (Exception ignored) {}
             mediaPlayer = null;
         }
-        // Stop Real Camera
         if (mCamera != null) {
             try {
                 mCamera.stopPreview();
