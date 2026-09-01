@@ -18,12 +18,10 @@ public class AppConfig {
     public static final String LOG_FILE = BASE_DIR + "daemon.log";
 
     public boolean enabled = true;
-    
     public List<String> mediaPaths = new ArrayList<>();
     public List<String> mediaTypes = new ArrayList<>();
     public List<String> mediaNames = new ArrayList<>();
-    public int selectedIndex = -1;
-
+    public int selectedIndex = 0;
     public int rotation = 0;
     public int zoom = 100;
     public int volume = 0;
@@ -34,12 +32,23 @@ public class AppConfig {
     public boolean disableToast = false;
 
     public String getActiveMediaType() {
-        if (selectedIndex >= 0 && selectedIndex < mediaTypes.size()) return mediaTypes.get(selectedIndex);
+        if (selectedIndex >= 0 && selectedIndex < mediaTypes.size()) {
+            return mediaTypes.get(selectedIndex);
+        }
+        if (!mediaTypes.isEmpty()) {
+            return mediaTypes.get(0);
+        }
         return "VIDEO";
     }
 
     public String getActiveMediaPath() {
-        if (selectedIndex >= 0 && selectedIndex < mediaPaths.size()) return mediaPaths.get(selectedIndex);
+        if (selectedIndex >= 0 && selectedIndex < mediaPaths.size()) {
+            return mediaPaths.get(selectedIndex);
+        }
+        // Fallback to first media if available
+        if (!mediaPaths.isEmpty()) {
+            return mediaPaths.get(0);
+        }
         return "";
     }
 
@@ -47,7 +56,6 @@ public class AppConfig {
         AppConfig config = new AppConfig();
         File file = new File(CONFIG_FILE);
         if (!file.exists()) {
-            config.save();
             return config;
         }
 
@@ -59,7 +67,7 @@ public class AppConfig {
             }
             JSONObject json = new JSONObject(sb.toString());
             config.enabled = json.optBoolean("enabled", true);
-            config.selectedIndex = json.optInt("selectedIndex", -1);
+            config.selectedIndex = json.optInt("selectedIndex", 0);
             config.rotation = json.optInt("rotation", 0);
             config.zoom = json.optInt("zoom", 100);
             config.volume = json.optInt("volume", 0);
@@ -107,11 +115,9 @@ public class AppConfig {
             json.put("scaleMode", scaleMode);
             json.put("showHud", showHud);
             json.put("disableToast", disableToast);
-
             json.put("mediaPaths", new JSONArray(mediaPaths));
             json.put("mediaTypes", new JSONArray(mediaTypes));
             json.put("mediaNames", new JSONArray(mediaNames));
-
             writer.write(json.toString(4));
         } catch (Exception e) {
             e.printStackTrace();

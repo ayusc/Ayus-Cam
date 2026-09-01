@@ -37,15 +37,12 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class HookMain implements IXposedHookLoadPackage {
-
     private static Surface fake_Surface;
     private static SurfaceTexture fake_SurfaceTexture;
     private static MediaPlayer mediaPlayer;
     private static Context appContext;
-
     private static Thread imageRenderThread;
     private static volatile boolean renderImage = false;
-
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     private static AppConfig getLiveConfig() {
@@ -55,17 +52,17 @@ public class HookMain implements IXposedHookLoadPackage {
     private static boolean isSubstitutionActive() {
         AppConfig config = getLiveConfig();
         if (!config.enabled) {
-            writeLog("[HOOK-STATUS] Disabled in configuration.");
+            writeLog("[HOOK-STATUS] Virtual camera disabled in settings.");
             return false;
         }
         String path = config.getActiveMediaPath();
-        if (path == null || path.isEmpty()) {
-            writeLog("[HOOK-STATUS] No active media path configured.");
+        if (path == null || path.trim().isEmpty()) {
+            writeLog("[HOOK-STATUS] No active media path configured. Media list count: " + config.mediaPaths.size());
             return false;
         }
         File file = new File(path);
         boolean exists = file.exists() && file.canRead();
-        writeLog("[HOOK-STATUS] Media path: " + path + " | Exists & Readable: " + exists);
+        writeLog("[HOOK-STATUS] Active Media Path: " + path + " | Exists & Readable: " + exists);
         return exists;
     }
 
@@ -73,19 +70,21 @@ public class HookMain implements IXposedHookLoadPackage {
         String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
         String logEntry = "[" + timestamp + "] " + text;
         XposedBridge.log("AyusCam: " + logEntry);
-        
+
         try {
             File logFile = new File(AppConfig.LOG_FILE);
             if (!logFile.exists()) {
-                logFile.getParentFile().mkdirs();
-                logFile.getParentFile().setReadable(true, false);
-                logFile.getParentFile().setWritable(true, false);
-                logFile.getParentFile().setExecutable(true, false);
+                if (logFile.getParentFile() != null) {
+                    logFile.getParentFile().mkdirs();
+                    logFile.getParentFile().setReadable(true, false);
+                    logFile.getParentFile().setWritable(true, false);
+                    logFile.getParentFile().setExecutable(true, false);
+                }
                 logFile.createNewFile();
             }
             logFile.setReadable(true, false);
             logFile.setWritable(true, false);
-            
+
             try (FileWriter fw = new FileWriter(logFile, true)) {
                 fw.write(logEntry + "\n");
             }
@@ -113,6 +112,7 @@ public class HookMain implements IXposedHookLoadPackage {
             writeLog("[ERROR] Failed to hook callApplicationOnCreate: " + t);
         }
 
+        // Camera 1 API Hooks
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader,
                     "setPreviewTexture", SurfaceTexture.class, new XC_MethodHook() {
@@ -153,7 +153,6 @@ public class HookMain implements IXposedHookLoadPackage {
                                 ByteArrayOutputStream stream = new ByteArrayOutputStream();
                                 finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
                                 byte[] jpegData = stream.toByteArray();
-
                                 Object jpegCallback = param.args[3];
                                 if (jpegCallback != null) {
                                     XposedHelpers.callMethod(jpegCallback, "onPictureTaken", jpegData, camera);
@@ -167,6 +166,7 @@ public class HookMain implements IXposedHookLoadPackage {
             writeLog("[ERROR] Failed Camera1 takePicture hook: " + t);
         }
 
+        // Camera 2 API Hooks
         try {
             XposedHelpers.findAndHookMethod("android.hardware.camera2.CameraManager", lpparam.classLoader,
                     "openCamera", String.class, CameraDevice.StateCallback.class, Handler.class, new XC_MethodHook() {
@@ -199,7 +199,6 @@ public class HookMain implements IXposedHookLoadPackage {
     private void hookCamera2DeviceCallbacks(Class<?> stateCallbackClass) {
         if (!hooked_classes.add(stateCallbackClass)) return;
         writeLog("[HOOK] Hooking Device StateCallback: " + stateCallbackClass.getName());
-
         try {
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onOpened", CameraDevice.class, new XC_MethodHook() {
                 @Override
@@ -223,17 +222,18 @@ public class HookMain implements IXposedHookLoadPackage {
                 XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", SessionConfiguration.class, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
-                        writeLog("[CAMERA2-A15] createCaptureSession(SessionConfiguration) triggered");
+                        writeLog("[CAMERA2] createCaptureSession(SessionConfiguration) triggered");
                         if (!isSubstitutionActive()) return;
                         SessionConfiguration sessionConfig = (SessionConfiguration) param.args[0];
                         if (sessionConfig != null) {
                             List<OutputConfiguration> configs = sessionConfig.getOutputConfigurations();
-                            writeLog("[CAMERA2-A15] SessionConfiguration outputs count: " + (configs != null ? configs.size() : 0));
-                            if (configs != null && !configs.isEmpty()) {
-                                Surface targetSurface = configs.get(0).getSurface();
-                                if (targetSurface != null && targetSurface.isValid()) {
-                                    writeLog("[CAMERA2-A15] Hijacking SessionConfiguration output surface");
-                                    startMediaPlayback(targetSurface);
+                            if (configs != null) {
+                                for (OutputConfiguration oc : configs) {
+                                    Surface targetSurface = oc.getSurface();
+                                    if (targetSurface != null && targetSurface.isValid()) {
+                                        writeLog("[CAMERA2] Hijacking SessionConfiguration output surface");
+                                        startMediaPlayback(targetSurface);
+                                    }
                                 }
                             }
                         }
@@ -251,9 +251,13 @@ public class HookMain implements IXposedHookLoadPackage {
                     writeLog("[CAMERA2] createCaptureSession(List) triggered");
                     if (!isSubstitutionActive()) return;
                     List<Surface> originalSurfaces = (List<Surface>) param.args[0];
-                    if (originalSurfaces != null && !originalSurfaces.isEmpty()) {
-                        writeLog("[CAMERA2] Hijacking direct Surface list (count: " + originalSurfaces.size() + ")");
-                        startMediaPlayback(originalSurfaces.get(0));
+                    if (originalSurfaces != null) {
+                        for (Surface targetSurface : originalSurfaces) {
+                            if (targetSurface != null && targetSurface.isValid()) {
+                                writeLog("[CAMERA2] Hijacking direct Surface list item");
+                                startMediaPlayback(targetSurface);
+                            }
+                        }
                     }
                 }
             });
@@ -269,11 +273,13 @@ public class HookMain implements IXposedHookLoadPackage {
                         writeLog("[CAMERA2] createCaptureSessionByOutputConfigurations triggered");
                         if (!isSubstitutionActive()) return;
                         List<OutputConfiguration> configs = (List<OutputConfiguration>) param.args[0];
-                        if (configs != null && !configs.isEmpty()) {
-                            Surface targetSurface = configs.get(0).getSurface();
-                            if (targetSurface != null && targetSurface.isValid()) {
-                                writeLog("[CAMERA2] Hijacking OutputConfiguration surface");
-                                startMediaPlayback(targetSurface);
+                        if (configs != null) {
+                            for (OutputConfiguration oc : configs) {
+                                Surface targetSurface = oc.getSurface();
+                                if (targetSurface != null && targetSurface.isValid()) {
+                                    writeLog("[CAMERA2] Hijacking OutputConfiguration surface");
+                                    startMediaPlayback(targetSurface);
+                                }
                             }
                         }
                     }
@@ -287,7 +293,6 @@ public class HookMain implements IXposedHookLoadPackage {
     private static void startMediaPlayback(Surface targetSurface) {
         AppConfig config = getLiveConfig();
         stopImageRenderLoop();
-
         writeLog("[PLAYBACK] Initializing media injection. Mode: " + config.getActiveMediaType() + " | Path: " + config.getActiveMediaPath());
 
         if ("VIDEO".equals(config.getActiveMediaType())) {
@@ -304,13 +309,11 @@ public class HookMain implements IXposedHookLoadPackage {
                 mediaPlayer.setDataSource(config.getActiveMediaPath());
                 mediaPlayer.setLooping(true);
                 mediaPlayer.setVolume(config.volume / 100f, config.volume / 100f);
-
                 if ("FILL".equals(config.scaleMode)) {
                     mediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
                 } else {
                     mediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
                 }
-
                 mediaPlayer.setOnPreparedListener(mp -> {
                     mp.start();
                     writeLog("[PLAYBACK-SUCCESS] Video playback started dynamically into camera stream");
@@ -370,13 +373,12 @@ public class HookMain implements IXposedHookLoadPackage {
             writeLog("[SCALE-ERROR] Failed to decode bitmap: " + imagePath);
             return null;
         }
-
         int srcW = original.getWidth();
         int srcH = original.getHeight();
+
         if (srcW == targetWidth && srcH == targetHeight && config.rotation == 0) return original;
 
         Matrix matrix = new Matrix();
-
         if (config.rotation != 0) {
             matrix.postRotate(config.rotation);
             original = Bitmap.createBitmap(original, 0, 0, srcW, srcH, matrix, true);
@@ -403,7 +405,6 @@ public class HookMain implements IXposedHookLoadPackage {
             int y = Math.max(0, (scaled.getHeight() - targetHeight) / 2);
             return Bitmap.createBitmap(scaled, x, y, targetWidth, targetHeight);
         }
-
         return scaled;
     }
 }
