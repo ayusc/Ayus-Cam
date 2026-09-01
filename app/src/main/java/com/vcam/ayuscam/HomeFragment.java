@@ -4,12 +4,14 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.media.MediaPlayer;
 import android.net.Uri;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
+import android.view.Gravity;
 import android.view.LayoutInflater;
 import android.view.Surface;
 import android.view.TextureView;
@@ -18,6 +20,7 @@ import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -30,13 +33,16 @@ import androidx.fragment.app.Fragment;
 import com.google.android.material.button.MaterialButton;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 public class HomeFragment extends Fragment implements TextureView.SurfaceTextureListener {
 
     private AppConfig config;
     private TextureView previewTextureView;
     private ImageView previewImageView;
-    private TextView tvPreviewStatus, tvEmptyMedia, tvMetaInfo;
+    private TextView tvPreviewStatus, tvEmptyMedia, tvMetaInfo, tvScaleInfo, tvBadgeDaemon, tvBadgePreviewState;
     private MaterialButton btnTogglePreview, btnToggleVirtualCam, btnPickPhoto, btnPickVideo;
     private ImageButton btnRotateCamera;
     private LinearLayout llMediaList, llPreviewOverlay;
@@ -44,7 +50,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private MediaPlayer mediaPlayer;
     private Camera mCamera;
     private int currentCameraId = Camera.CameraInfo.CAMERA_FACING_BACK;
-    
     private boolean isPreviewRunning = false;
 
     private final ActivityResultLauncher<String[]> pickPhotoLauncher = registerForActivityResult(
@@ -64,13 +69,16 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         tvPreviewStatus = root.findViewById(R.id.tv_preview_status);
         tvEmptyMedia = root.findViewById(R.id.tv_empty_media);
         tvMetaInfo = root.findViewById(R.id.tv_meta_info);
-        
+        tvScaleInfo = root.findViewById(R.id.tv_scale_info);
+        tvBadgeDaemon = root.findViewById(R.id.tv_badge_daemon);
+        tvBadgePreviewState = root.findViewById(R.id.tv_badge_preview_state);
+
         btnTogglePreview = root.findViewById(R.id.btn_toggle_preview);
         btnToggleVirtualCam = root.findViewById(R.id.btn_toggle_virtual_cam);
         btnPickPhoto = root.findViewById(R.id.btn_pick_photo);
         btnPickVideo = root.findViewById(R.id.btn_pick_video);
         btnRotateCamera = root.findViewById(R.id.btn_rotate_camera);
-        
+
         llMediaList = root.findViewById(R.id.ll_media_list);
         llPreviewOverlay = root.findViewById(R.id.ll_preview_status_overlay);
 
@@ -93,11 +101,11 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         });
 
         btnRotateCamera.setOnClickListener(v -> {
-            currentCameraId = (currentCameraId == Camera.CameraInfo.CAMERA_FACING_BACK) 
-                    ? Camera.CameraInfo.CAMERA_FACING_FRONT 
-                    : Camera.CameraInfo.CAMERA_FACING_BACK;
-            
-            if (isPreviewRunning && !config.enabled) {
+            int numCameras = Camera.getNumberOfCameras();
+            if (numCameras > 1) {
+                currentCameraId = (currentCameraId == Camera.CameraInfo.CAMERA_FACING_BACK)
+                        ? Camera.CameraInfo.CAMERA_FACING_FRONT
+                        : Camera.CameraInfo.CAMERA_FACING_BACK;
                 restartPreviewMode();
             }
         });
@@ -108,122 +116,71 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private void handleMediaResult(Uri uri, String type) {
         if (uri == null) return;
-        
-        String realPath = getRealPathFromURI(uri);
-        if (realPath == null) {
-            Toast.makeText(requireContext(), "Error: Invalid file format or cloud storage.", Toast.LENGTH_LONG).show();
-            return;
-        }
 
-        String displayName = "Unknown";
+        String displayName = "media_" + System.currentTimeMillis();
         try (Cursor cursor = requireContext().getContentResolver().query(uri, null, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                 if (nameIndex != -1) displayName = cursor.getString(nameIndex);
             }
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (Exception ignored) {}
 
-        config.mediaPaths.add(realPath);
-        config.mediaTypes.add(type);
-        config.mediaNames.add(displayName);
-        config.selectedIndex = config.mediaPaths.size() - 1;
-        config.save();
+        File targetDir = new File(AppConfig.BASE_DIR);
+        if (!targetDir.exists()) targetDir.mkdirs();
 
-        updateUI();
-        restartPreviewMode();
-    }
+        String ext = "IMAGE".equals(type) ? ".jpg" : ".mp4";
+        File localFile = new File(targetDir, System.currentTimeMillis() + ext);
 
-    private String getRealPathFromURI(Uri uri) {
-        if (android.provider.DocumentsContract.isDocumentUri(requireContext(), uri)) {
-            if ("com.android.externalstorage.documents".equals(uri.getAuthority())) {
-                String docId = android.provider.DocumentsContract.getDocumentId(uri);
-                String[] split = docId.split(":");
-                String type = split[0];
-                if ("primary".equalsIgnoreCase(type)) {
-                    return android.os.Environment.getExternalStorageDirectory() + "/" + split[1];
-                } else {
-                    return "/storage/" + type + "/" + split[1];
-                }
-            } else if ("com.android.providers.downloads.documents".equals(uri.getAuthority())) {
-                String id = android.provider.DocumentsContract.getDocumentId(uri);
-                if (id != null && id.startsWith("raw:")) {
-                    return id.substring(4);
-                }
-                String[] contentUriPrefixesToTry = new String[]{
-                        "content://downloads/public_downloads",
-                        "content://downloads/my_downloads"
-                };
-                for (String contentUriPrefix : contentUriPrefixesToTry) {
-                    try {
-                        Uri contentUri = android.content.ContentUris.withAppendedId(android.net.Uri.parse(contentUriPrefix), Long.parseLong(id));
-                        String path = getDataColumn(contentUri, null, null);
-                        if (path != null) return path;
-                    } catch (Exception e) {}
-                }
-            } else if ("com.android.providers.media.documents".equals(uri.getAuthority())) {
-                String docId = android.provider.DocumentsContract.getDocumentId(uri);
-                String[] split = docId.split(":");
-                String type = split[0];
-                Uri contentUri = null;
-                if ("image".equals(type)) {
-                    contentUri = android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
-                } else if ("video".equals(type)) {
-                    contentUri = android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
-                } else if ("audio".equals(type)) {
-                    contentUri = android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
-                }
-                String selection = "_id=?";
-                String[] selectionArgs = new String[]{split[1]};
-                return getDataColumn(contentUri, selection, selectionArgs);
+        try (InputStream in = requireContext().getContentResolver().openInputStream(uri);
+             OutputStream out = new FileOutputStream(localFile)) {
+            byte[] buf = new byte[8192];
+            int len;
+            while ((len = in.read(buf)) > 0) {
+                out.write(buf, 0, len);
             }
-        } else if ("content".equalsIgnoreCase(uri.getScheme())) {
-            return getDataColumn(uri, null, null);
-        } else if ("file".equalsIgnoreCase(uri.getScheme())) {
-            return uri.getPath();
-        }
-        return null;
-    }
+            localFile.setReadable(true, false);
+            localFile.setWritable(true, false);
 
-    private String getDataColumn(Uri uri, String selection, String[] selectionArgs) {
-        Cursor cursor = null;
-        String column = android.provider.MediaStore.MediaColumns.DATA;
-        String[] projection = {column};
-        try {
-            cursor = requireContext().getContentResolver().query(uri, projection, selection, selectionArgs, null);
-            if (cursor != null && cursor.moveToFirst()) {
-                int index = cursor.getColumnIndexOrThrow(column);
-                return cursor.getString(index);
-            }
+            config.mediaPaths.add(localFile.getAbsolutePath());
+            config.mediaTypes.add(type);
+            config.mediaNames.add(displayName);
+            config.selectedIndex = config.mediaPaths.size() - 1;
+            config.save();
+
+            updateUI();
+            restartPreviewMode();
         } catch (Exception e) {
-        } finally {
-            if (cursor != null) cursor.close();
+            Toast.makeText(requireContext(), "Failed to load file: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
-        return null;
     }
 
     private void updateUI() {
-        tvMetaInfo.setText(String.format("%d° | %d%% | Vol: %d%% | %s", config.rotation, config.zoom, config.volume, config.scaleMode));
+        tvMetaInfo.setText(String.format("%d°  |  %d%%  |  Vol: %d%%", config.rotation, config.zoom, config.volume));
+        tvScaleInfo.setText(String.format("%s (%d, %d)", config.scaleMode, config.panX, config.panY));
 
-        if (config.enabled) {
+        boolean isActive = config.enabled && new File(config.getActiveMediaPath()).exists();
+        if (isActive) {
+            tvBadgeDaemon.setText("● ACTIVE");
+            tvBadgeDaemon.setTextColor(0xFF00E676);
             btnToggleVirtualCam.setText("Disable Virtual Camera");
-            btnToggleVirtualCam.setBackgroundColor(0xFFD32F2F);
+            btnToggleVirtualCam.setBackgroundColor(0xFF8B0000);
         } else {
+            tvBadgeDaemon.setText("● Not Started");
+            tvBadgeDaemon.setTextColor(0xFF8A909E);
             btnToggleVirtualCam.setText("Enable Virtual Camera");
-            btnToggleVirtualCam.setBackgroundColor(0xFF2E7D32);
+            btnToggleVirtualCam.setBackgroundColor(0xFF121620);
         }
 
         if (isPreviewRunning) {
-            btnTogglePreview.setText("Stop Preview");
-            tvPreviewStatus.setText("");
+            tvBadgePreviewState.setText("Preview ON");
+            tvBadgePreviewState.setTextColor(0xFF00E676);
             llPreviewOverlay.setVisibility(View.GONE);
-            btnRotateCamera.setVisibility(View.VISIBLE);
         } else {
-            btnTogglePreview.setText("Enable Preview");
-            tvPreviewStatus.setText("Live Preview Disabled");
+            tvBadgePreviewState.setText("Preview OFF");
+            tvBadgePreviewState.setTextColor(0xFF8A909E);
             llPreviewOverlay.setVisibility(View.VISIBLE);
-            btnRotateCamera.setVisibility(View.GONE);
         }
-        
+
         renderMediaList();
     }
 
@@ -236,45 +193,79 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
         for (int i = 0; i < config.mediaPaths.size(); i++) {
             final int index = i;
-            TextView itemView = new TextView(requireContext());
-            itemView.setText(config.mediaNames.get(i) + " [" + config.mediaTypes.get(i) + "]");
-            itemView.setPadding(16, 24, 16, 24);
-            itemView.setTextSize(14f);
-            
+            RelativeLayout row = new RelativeLayout(requireContext());
+            row.setPadding(24, 16, 24, 16);
+
             if (config.selectedIndex == index) {
-                itemView.setBackgroundColor(0x33FF2A42);
-                itemView.setTextColor(Color.WHITE);
+                row.setBackgroundColor(0x3300E676);
             } else {
-                itemView.setBackgroundColor(Color.TRANSPARENT);
-                itemView.setTextColor(0xFF8A909E);
+                row.setBackgroundColor(Color.TRANSPARENT);
             }
 
-            itemView.setOnClickListener(v -> {
+            LinearLayout leftContainer = new LinearLayout(requireContext());
+            leftContainer.setOrientation(LinearLayout.HORIZONTAL);
+            leftContainer.setGravity(Gravity.CENTER_VERTICAL);
+            RelativeLayout.LayoutParams lpLeft = new RelativeLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            lpLeft.addRule(RelativeLayout.ALIGN_PARENT_START);
+            lpLeft.addRule(RelativeLayout.START_OF, 1000 + index);
+
+            ImageView icon = new ImageView(requireContext());
+            boolean isImage = "IMAGE".equals(config.mediaTypes.get(i));
+            icon.setImageResource(isImage ? android.R.drawable.ic_menu_gallery : android.R.drawable.ic_media_play);
+            icon.setColorFilter(config.selectedIndex == index ? 0xFF00E676 : 0xFF8A909E);
+            LinearLayout.LayoutParams lpIcon = new LinearLayout.LayoutParams(36, 36);
+            lpIcon.setMarginEnd(16);
+            leftContainer.addView(icon, lpIcon);
+
+            TextView title = new TextView(requireContext());
+            title.setText(config.mediaNames.get(i));
+            title.setTextColor(config.selectedIndex == index ? Color.WHITE : 0xFF8A909E);
+            title.setTextSize(14f);
+            title.setSingleLine(true);
+            leftContainer.addView(title);
+
+            row.addView(leftContainer, lpLeft);
+
+            ImageButton btnDelete = new ImageButton(requireContext());
+            btnDelete.setId(1000 + index);
+            btnDelete.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+            btnDelete.setColorFilter(0xFFFF2A42);
+            btnDelete.setBackgroundColor(Color.TRANSPARENT);
+            RelativeLayout.LayoutParams lpRight = new RelativeLayout.LayoutParams(48, 48);
+            lpRight.addRule(RelativeLayout.ALIGN_PARENT_END);
+            lpRight.addRule(RelativeLayout.CENTER_VERTICAL);
+            row.addView(btnDelete, lpRight);
+
+            row.setOnClickListener(v -> {
                 config.selectedIndex = index;
                 config.save();
                 updateUI();
                 restartPreviewMode();
             });
 
-            itemView.setOnLongClickListener(v -> {
+            btnDelete.setOnClickListener(v -> {
+                File f = new File(config.mediaPaths.get(index));
+                if (f.exists()) f.delete();
                 config.mediaPaths.remove(index);
                 config.mediaNames.remove(index);
                 config.mediaTypes.remove(index);
-                if (config.selectedIndex == index) config.selectedIndex = -1;
-                else if (config.selectedIndex > index) config.selectedIndex--;
+                if (config.selectedIndex == index) {
+                    config.selectedIndex = config.mediaPaths.isEmpty() ? -1 : 0;
+                } else if (config.selectedIndex > index) {
+                    config.selectedIndex--;
+                }
                 config.save();
                 updateUI();
                 restartPreviewMode();
-                return true;
             });
 
-            llMediaList.addView(itemView);
+            llMediaList.addView(row);
         }
     }
 
     private void restartPreviewMode() {
         stopAllPreviews();
-
         if (!isPreviewRunning) return;
 
         if (config.enabled && config.selectedIndex != -1) {
@@ -287,7 +278,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private void startVirtualPreview() {
         File file = new File(config.getActiveMediaPath());
         if (!file.exists()) {
-            Toast.makeText(requireContext(), "Media missing or unreadable.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), "Selected file not found", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -295,6 +286,11 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             previewTextureView.setVisibility(View.GONE);
             previewImageView.setVisibility(View.VISIBLE);
             Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+            if (bitmap != null && config.rotation != 0) {
+                Matrix m = new Matrix();
+                m.postRotate(config.rotation);
+                bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), m, true);
+            }
             previewImageView.setImageBitmap(bitmap);
         } else {
             previewImageView.setVisibility(View.GONE);
@@ -308,7 +304,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private void startRealCameraPreview() {
         previewImageView.setVisibility(View.GONE);
         previewTextureView.setVisibility(View.VISIBLE);
-
         if (previewTextureView.isAvailable()) {
             openPhysicalCamera(previewTextureView.getSurfaceTexture());
         }
@@ -317,10 +312,30 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private void openPhysicalCamera(SurfaceTexture surfaceTexture) {
         try {
             mCamera = Camera.open(currentCameraId);
+            Camera.CameraInfo info = new Camera.CameraInfo();
+            Camera.getCameraInfo(currentCameraId, info);
+
+            int rotation = requireActivity().getWindowManager().getDefaultDisplay().getRotation();
+            int degrees = 0;
+            switch (rotation) {
+                case Surface.ROTATION_0: degrees = 0; break;
+                case Surface.ROTATION_90: degrees = 90; break;
+                case Surface.ROTATION_180: degrees = 180; break;
+                case Surface.ROTATION_270: degrees = 270; break;
+            }
+
+            int result;
+            if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+                result = (info.orientation + degrees) % 360;
+                result = (360 - result) % 360;
+            } else {
+                result = (info.orientation - degrees + 360) % 360;
+            }
+            mCamera.setDisplayOrientation(result);
             mCamera.setPreviewTexture(surfaceTexture);
             mCamera.startPreview();
         } catch (Exception e) {
-            Toast.makeText(requireContext(), "Camera in use or permission denied.", Toast.LENGTH_SHORT).show();
+            Toast.makeText(requireContext(), "Camera unavailable: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -333,9 +348,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             mediaPlayer.setVolume(config.volume / 100f, config.volume / 100f);
             mediaPlayer.prepareAsync();
             mediaPlayer.setOnPreparedListener(MediaPlayer::start);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        } catch (Exception ignored) {}
     }
 
     private void stopAllPreviews() {
@@ -362,9 +375,17 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         restartPreviewMode();
     }
 
-    @Override public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {}
-    @Override public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) { stopAllPreviews(); return true; }
-    @Override public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {}
+    @Override
+    public void onSurfaceTextureSizeChanged(@NonNull SurfaceTexture surface, int width, int height) {}
+
+    @Override
+    public boolean onSurfaceTextureDestroyed(@NonNull SurfaceTexture surface) {
+        stopAllPreviews();
+        return true;
+    }
+
+    @Override
+    public void onSurfaceTextureUpdated(@NonNull SurfaceTexture surface) {}
 
     @Override
     public void onDestroyView() {
