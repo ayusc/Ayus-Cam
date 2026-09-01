@@ -23,15 +23,12 @@ import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-
 import com.google.android.material.button.MaterialButton;
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -42,7 +39,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private AppConfig config;
     private TextureView previewTextureView;
     private ImageView previewImageView;
-    private TextView tvPreviewStatus, tvEmptyMedia, tvMetaInfo, tvScaleInfo, tvBadgeDaemon, tvBadgePreviewState;
+    private TextView tvPreviewStatus, tvEmptyMedia, tvBadgeDaemon, tvBadgePreviewState;
     private MaterialButton btnTogglePreview, btnToggleVirtualCam, btnPickPhoto, btnPickVideo;
     private ImageButton btnRotateCamera;
     private LinearLayout llMediaList, llPreviewOverlay;
@@ -68,8 +65,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         previewImageView = root.findViewById(R.id.preview_image_view);
         tvPreviewStatus = root.findViewById(R.id.tv_preview_status);
         tvEmptyMedia = root.findViewById(R.id.tv_empty_media);
-        tvMetaInfo = root.findViewById(R.id.tv_meta_info);
-        tvScaleInfo = root.findViewById(R.id.tv_scale_info);
         tvBadgeDaemon = root.findViewById(R.id.tv_badge_daemon);
         tvBadgePreviewState = root.findViewById(R.id.tv_badge_preview_state);
 
@@ -155,9 +150,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     }
 
     private void updateUI() {
-        tvMetaInfo.setText(String.format("%d°  |  %d%%  |  Vol: %d%%", config.rotation, config.zoom, config.volume));
-        tvScaleInfo.setText(String.format("%s (%d, %d)", config.scaleMode, config.panX, config.panY));
-
         boolean isActive = config.enabled && new File(config.getActiveMediaPath()).exists();
         if (isActive) {
             tvBadgeDaemon.setText("● ACTIVE");

@@ -68,9 +68,9 @@ public class StatusFragment extends Fragment {
 
     private void loadLogs() {
         File logFile = new File(AppConfig.LOG_FILE);
+        String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
         if (!logFile.exists()) {
-            String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-            tvConsoleLogs.setText("[" + time + "] Daemon initialized.\n[" + time + "] Ready for camera replacement.");
+            tvConsoleLogs.setText("[" + time + "] App Opened.\n[" + time + "] Ready for camera replacement.");
             return;
         }
 
@@ -79,6 +79,9 @@ public class StatusFragment extends Fragment {
             String line;
             while ((line = br.readLine()) != null) {
                 sb.append(line).append("\n");
+            }
+            if (sb.length() == 0) {
+                sb.append("[").append(time).append("] App Opened.\n[").append(time).append("] Ready for camera replacement.\n");
             }
             tvConsoleLogs.setText(sb.toString());
         } catch (Exception e) {

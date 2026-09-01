@@ -159,7 +159,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
-                            android:text="Live Preview Disabled (Saving Battery)"
+                            android:text="Live Preview Disabled"
                             android:textColor="@color/text_muted"
                             android:textSize="14sp" />
 
@@ -177,29 +177,6 @@
                             app:strokeWidth="1dp" />
                     </LinearLayout>
                 </FrameLayout>
-
-                <RelativeLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp">
-
-                    <TextView
-                        android:id="@+id/tv_meta_info"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="0°  |  100%  |  Vol: 0%"
-                        android:textColor="@color/text_muted"
-                        android:textSize="12sp" />
-
-                    <TextView
-                        android:id="@+id/tv_scale_info"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_alignParentEnd="true"
-                        android:text="Fill (0, 0)"
-                        android:textColor="@color/text_muted"
-                        android:textSize="12sp" />
-                </RelativeLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

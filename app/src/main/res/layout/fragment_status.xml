@@ -12,7 +12,6 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- Top Header Bar -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -43,7 +42,6 @@
                 android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Daemon Status Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -81,25 +79,26 @@
                         android:textStyle="bold" />
                 </RelativeLayout>
 
-                <!-- Row 1: State, Socket, PID -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:orientation="horizontal"
-                    android:weightSum="3">
+                    android:weightSum="2">
 
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/state"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -114,12 +113,14 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/socket"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:id="@+id/tv_socket_status"
                             android:layout_width="wrap_content"
@@ -129,29 +130,8 @@
                             android:textSize="14sp"
                             android:textStyle="bold" />
                     </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/pid"
-                            android:textColor="@color/text_muted"
-                            android:textSize="12sp" />
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="—"
-                            android:textColor="@color/text_main"
-                            android:textSize="14sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
                 </LinearLayout>
 
-                <!-- Row 2: Rotation, Zoom, Scale Mode -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -164,12 +144,14 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/rotation"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:id="@+id/tv_status_rotation"
                             android:layout_width="wrap_content"
@@ -185,12 +167,14 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/zoom"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:id="@+id/tv_status_zoom"
                             android:layout_width="wrap_content"
@@ -206,12 +190,14 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/scale_mode"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:id="@+id/tv_status_scale"
                             android:layout_width="wrap_content"
@@ -225,7 +211,6 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Live Console Logs Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -263,7 +248,6 @@
                         android:textColor="@color/text_muted" />
                 </RelativeLayout>
 
-                <!-- Console Box -->
                 <ScrollView
                     android:layout_width="match_parent"
                     android:layout_height="220dp"
@@ -276,12 +260,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:fontFamily="monospace"
-                        android:text="[Daemon] Initialized.\n[Root] Access verified (uid=0)."
                         android:textColor="@color/accent_red"
                         android:textSize="12sp" />
                 </ScrollView>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
     </LinearLayout>
 </ScrollView>
