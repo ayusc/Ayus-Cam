@@ -12,35 +12,50 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <LinearLayout
+        <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
             android:layout_marginBottom="16dp">
 
-            <TextView
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/app_name"
-                android:textColor="@color/accent_red"
-                android:textSize="22sp"
-                android:textStyle="bold" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:background="@color/accent_red_dark"
-                android:paddingStart="8dp"
-                android:paddingTop="2dp"
-                android:paddingEnd="8dp"
-                android:paddingBottom="2dp"
-                android:text="@string/app_badge"
-                android:textColor="@color/text_main"
-                android:textSize="10sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="AYUSCAM"
+                    android:textColor="@color/accent_green"
+                    android:textSize="22sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/badge_background"
+                    android:backgroundTint="@color/accent_green_dark"
+                    android:paddingStart="8dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="2dp"
+                    android:text="PRO"
+                    android:textColor="@color/accent_green"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/btn_fullscreen_header"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:src="@android:drawable/ic_menu_crop"
+                app:tint="@color/accent_green" />
+        </RelativeLayout>
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -57,9 +72,59 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="12dp">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/tv_badge_daemon"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@color/pill_dark"
+                            android:paddingStart="10dp"
+                            android:paddingTop="4dp"
+                            android:paddingEnd="10dp"
+                            android:paddingBottom="4dp"
+                            android:text="● Not Started"
+                            android:textColor="@color/text_muted"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tv_badge_preview_state"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:background="@color/pill_dark"
+                            android:paddingStart="10dp"
+                            android:paddingTop="4dp"
+                            android:paddingEnd="10dp"
+                            android:paddingBottom="4dp"
+                            android:text="Preview OFF"
+                            android:textColor="@color/text_muted"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <ImageButton
+                        android:id="@+id/btn_rotate_camera"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_alignParentEnd="true"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:src="@android:drawable/ic_menu_rotate"
+                        app:tint="@color/text_muted" />
+                </RelativeLayout>
+
                 <FrameLayout
                     android:layout_width="match_parent"
-                    android:layout_height="250dp"
+                    android:layout_height="220dp"
                     android:background="@color/inner_box_dark">
 
                     <TextureView
@@ -75,54 +140,66 @@
                         android:scaleType="centerCrop"
                         android:visibility="gone" />
 
-                    <!-- Camera Rotation Button -->
-                    <ImageButton
-                        android:id="@+id/btn_rotate_camera"
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
-                        android:layout_gravity="top|end"
-                        android:layout_margin="8dp"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:src="@android:drawable/ic_menu_rotate"
-                        app:tint="@color/accent_red"
-                        android:visibility="gone" />
-
                     <LinearLayout
                         android:id="@+id/ll_preview_status_overlay"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
                         android:gravity="center"
-                        android:orientation="vertical">
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <ImageView
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:src="@android:drawable/ic_menu_view"
+                            app:tint="@color/text_disabled" />
 
                         <TextView
                             android:id="@+id/tv_preview_status"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="@string/live_preview_disabled"
+                            android:layout_marginTop="12dp"
+                            android:text="Live Preview Disabled (Saving Battery)"
                             android:textColor="@color/text_muted"
                             android:textSize="14sp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btn_toggle_preview"
                             android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
-                            android:text="@string/enable_preview"
-                            android:textColor="@color/text_main"
-                            app:backgroundTint="@color/accent_red"
-                            app:cornerRadius="8dp" />
+                            android:layout_height="40dp"
+                            android:layout_marginTop="14dp"
+                            android:backgroundTint="@color/pill_dark"
+                            android:text="Enable Preview"
+                            android:textAllCaps="false"
+                            android:textColor="@color/accent_green"
+                            app:cornerRadius="20dp"
+                            app:strokeColor="@color/card_stroke"
+                            app:strokeWidth="1dp" />
                     </LinearLayout>
                 </FrameLayout>
 
-                <TextView
-                    android:id="@+id/tv_meta_info"
+                <RelativeLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:gravity="center"
-                    android:text="0° | 100% | Vol: 0% | Fill"
-                    android:textColor="@color/text_muted"
-                    android:textSize="12sp" />
+                    android:layout_marginTop="12dp">
+
+                    <TextView
+                        android:id="@+id/tv_meta_info"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="0°  |  100%  |  Vol: 0%"
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/tv_scale_info"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentEnd="true"
+                        android:text="Fill (0, 0)"
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp" />
+                </RelativeLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -131,12 +208,18 @@
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:layout_marginBottom="16dp"
-            android:text="@string/enable_virtual_cam"
+            android:backgroundTint="@color/card_dark"
+            android:text="Enable Virtual Camera"
+            android:textAllCaps="false"
             android:textColor="@color/text_main"
-            android:textSize="16sp"
+            android:textSize="15sp"
             android:textStyle="bold"
-            app:backgroundTint="@color/accent_red"
-            app:cornerRadius="12dp" />
+            app:cornerRadius="16dp"
+            app:icon="@android:drawable/ic_menu_camera"
+            app:iconGravity="textStart"
+            app:iconTint="@color/text_main"
+            app:strokeColor="@color/card_stroke"
+            app:strokeWidth="1dp" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -156,28 +239,27 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/photo_video_source"
+                    android:text="Photo/Video Source"
                     android:textColor="@color/text_main"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
-                <!-- Container for Added Media -->
                 <LinearLayout
                     android:id="@+id/ll_media_list"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:orientation="vertical"
                     android:background="@color/inner_box_dark"
-                    android:padding="8dp">
-                    
+                    android:orientation="vertical"
+                    android:padding="4dp">
+
                     <TextView
                         android:id="@+id/tv_empty_media"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:padding="12dp"
-                        android:text="@string/no_media_added"
                         android:gravity="center"
+                        android:padding="16dp"
+                        android:text="No media added yet"
                         android:textColor="@color/text_muted" />
                 </LinearLayout>
 
@@ -192,27 +274,28 @@
                         android:id="@+id/btn_pick_photo"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                         android:layout_width="0dp"
-                        android:layout_height="50dp"
-                        android:layout_weight="1"
+                        android:layout_height="48dp"
                         android:layout_marginEnd="4dp"
-                        android:text="@string/add_photo"
-                        android:textColor="@color/accent_red"
+                        android:layout_weight="1"
+                        android:text="+ Select Photo"
+                        android:textAllCaps="false"
+                        android:textColor="@color/accent_green"
                         app:cornerRadius="8dp"
-                        app:strokeColor="@color/accent_red" />
+                        app:strokeColor="@color/accent_green" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_pick_video"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                         android:layout_width="0dp"
-                        android:layout_height="50dp"
-                        android:layout_weight="1"
+                        android:layout_height="48dp"
                         android:layout_marginStart="4dp"
-                        android:text="@string/add_video"
-                        android:textColor="@color/accent_red"
+                        android:layout_weight="1"
+                        android:text="+ Select Video"
+                        android:textAllCaps="false"
+                        android:textColor="@color/accent_green"
                         app:cornerRadius="8dp"
-                        app:strokeColor="@color/accent_red" />
+                        app:strokeColor="@color/accent_green" />
                 </LinearLayout>
-
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
