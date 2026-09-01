@@ -121,7 +121,12 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         } catch (Exception ignored) {}
 
         File targetDir = new File(AppConfig.BASE_DIR);
-        if (!targetDir.exists()) targetDir.mkdirs();
+        if (!targetDir.exists()) {
+            targetDir.mkdirs();
+            targetDir.setReadable(true, false);
+            targetDir.setWritable(true, false);
+            targetDir.setExecutable(true, false);
+        }
 
         String ext = "IMAGE".equals(type) ? ".jpg" : ".mp4";
         File localFile = new File(targetDir, System.currentTimeMillis() + ext);

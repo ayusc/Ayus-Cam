@@ -73,8 +73,22 @@ public class HookMain implements IXposedHookLoadPackage {
         String timestamp = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
         String logEntry = "[" + timestamp + "] " + text;
         XposedBridge.log("AyusCam: " + logEntry);
-        try (FileWriter fw = new FileWriter(AppConfig.LOG_FILE, true)) {
-            fw.write(logEntry + "\n");
+        
+        try {
+            File logFile = new File(AppConfig.LOG_FILE);
+            if (!logFile.exists()) {
+                logFile.getParentFile().mkdirs();
+                logFile.getParentFile().setReadable(true, false);
+                logFile.getParentFile().setWritable(true, false);
+                logFile.getParentFile().setExecutable(true, false);
+                logFile.createNewFile();
+            }
+            logFile.setReadable(true, false);
+            logFile.setWritable(true, false);
+            
+            try (FileWriter fw = new FileWriter(logFile, true)) {
+                fw.write(logEntry + "\n");
+            }
         } catch (Exception ignored) {}
     }
 

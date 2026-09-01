@@ -36,7 +36,6 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:background="@drawable/badge_background"
-                    android:backgroundTint="@color/accent_green_dark"
                     android:paddingStart="8dp"
                     android:paddingTop="2dp"
                     android:paddingEnd="8dp"

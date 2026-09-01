@@ -13,15 +13,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class AppConfig {
-    public static final String BASE_DIR = Environment.getExternalStorageDirectory().getAbsolutePath() + "/DCIM/Camera1/";
+    public static final String BASE_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getAbsolutePath() + "/AyusCam/";
     public static final String CONFIG_FILE = BASE_DIR + "config.json";
     public static final String LOG_FILE = BASE_DIR + "daemon.log";
 
     public boolean enabled = true;
     
-    // Lists to support multiple items
     public List<String> mediaPaths = new ArrayList<>();
-    public List<String> mediaTypes = new ArrayList<>(); // "VIDEO" or "IMAGE"
+    public List<String> mediaTypes = new ArrayList<>();
     public List<String> mediaNames = new ArrayList<>();
     public int selectedIndex = -1;
 
@@ -34,7 +33,6 @@ public class AppConfig {
     public boolean showHud = false;
     public boolean disableToast = false;
 
-    // Helper to get active media type and path for backwards compatibility and hooks
     public String getActiveMediaType() {
         if (selectedIndex >= 0 && selectedIndex < mediaTypes.size()) return mediaTypes.get(selectedIndex);
         return "VIDEO";
@@ -82,7 +80,6 @@ public class AppConfig {
                     config.mediaNames.add(namesArr.getString(i));
                 }
             }
-
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -94,6 +91,10 @@ public class AppConfig {
         if (!dir.exists()) {
             dir.mkdirs();
         }
+        dir.setReadable(true, false);
+        dir.setWritable(true, false);
+        dir.setExecutable(true, false);
+
         try (FileWriter writer = new FileWriter(CONFIG_FILE)) {
             JSONObject json = new JSONObject();
             json.put("enabled", enabled);
@@ -115,5 +116,9 @@ public class AppConfig {
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        File configFile = new File(CONFIG_FILE);
+        configFile.setReadable(true, false);
+        configFile.setWritable(true, false);
     }
 }
