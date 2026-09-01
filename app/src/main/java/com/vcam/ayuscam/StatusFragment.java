@@ -17,7 +17,7 @@ import java.util.Date;
 import java.util.Locale;
 
 public class StatusFragment extends Fragment {
-
+    
     private TextView tvDaemonState, tvSocketStatus, tvRotationState, tvZoomState, tvScaleState, tvConsoleLogs;
     private Button btnClearLogs;
 
@@ -25,7 +25,7 @@ public class StatusFragment extends Fragment {
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View root = inflater.inflate(R.layout.fragment_status, container, false);
-
+        
         tvDaemonState = root.findViewById(R.id.tv_daemon_state);
         tvSocketStatus = root.findViewById(R.id.tv_socket_status);
         tvRotationState = root.findViewById(R.id.tv_status_rotation);
@@ -41,6 +41,7 @@ public class StatusFragment extends Fragment {
         });
 
         loadStatus();
+        
         return root;
     }
 
@@ -52,12 +53,11 @@ public class StatusFragment extends Fragment {
 
     private void loadStatus() {
         AppConfig config = AppConfig.load();
-        File mediaFile = new File(config.mediaPath);
-
+        File mediaFile = new File(config.getActiveMediaPath());
         boolean isActive = config.enabled && mediaFile.exists();
+
         tvDaemonState.setText(isActive ? "ACTIVE" : "IDLE");
         tvDaemonState.setTextColor(isActive ? 0xFF00E676 : 0xFFE53935);
-
         tvSocketStatus.setText("CONNECTED");
         tvRotationState.setText(config.rotation + "°");
         tvZoomState.setText(config.zoom + "%");
