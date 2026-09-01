@@ -1,0 +1,10 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.VCAM" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/accent_red</item>
+        <item name="colorPrimaryVariant">@color/bg_black</item>
+        <item name="colorOnPrimary">@color/text_main</item>
+        <item name="colorSecondary">@color/accent_red</item>
+        <item name="android:windowBackground">@color/bg_black</item>
+        <item name="android:textColor">@color/text_main</item>
+    </style>
+</resources>

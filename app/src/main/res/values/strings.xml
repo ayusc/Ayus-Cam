@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">AYUSCAM</string>
+    <string name="app_badge">PRO</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_control">Control</string>
+    <string name="nav_status">Status</string>
+    
+    <!-- Home Tab -->
+    <string name="live_preview_disabled">Live Preview Disabled</string>
+    <string name="enable_preview">Enable Preview</string>
+    <string name="disable_preview">Disable Preview</string>
+    <string name="enable_virtual_cam">Enable Virtual Camera</string>
+    <string name="disable_virtual_cam">Disable Virtual Camera</string>
+    <string name="photo_video_source">Photo/Video Source</string>
+    
+    <string name="add_photo">+ Select Photo</string>
+    <string name="add_video">+ Select Video</string>
+    <string name="no_media_added">No media added yet</string>
+
+    <!-- Control Tab -->
+    <string name="rotation">Rotation</string>
+    <string name="zoom">Zoom</string>
+    <string name="volume">Volume</string>
+    <string name="pause">Pause</string>
+    <string name="pan">Pan</string>
+    <string name="quick_tools">Quick Tools &amp; Floating Overlay</string>
+    <string name="show_floating_hud">Show Floating HUD</string>
+    <string name="aspect_ratio">Aspect Ratio</string>
+    <string name="fit">Fit</string>
+    <string name="stretch">Stretch</string>
+    <string name="fill">Fill</string>
+    
+    <!-- Status Tab -->
+    <string name="daemon_status">Daemon Status</string>
+    <string name="state">State</string>
+    <string name="socket">Socket</string>
+    <string name="pid">PID</string>
+    <string name="scale_mode">Scale Mode</string>
+    <string name="live_console_logs">Live Console Logs</string>
+    <string name="clear">Clear</string>
+</resources>
