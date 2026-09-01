@@ -30,21 +30,25 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '7.5.1'
+          cache-read-only: false
+          add-job-summary: 'always'
 
-      - name: Build Release APK
-        run: chmod +x gradlew && ./gradlew assembleRelease
+      - name: Build APK
+        run: gradle assembleDebug --stacktrace --build-cache
 
       - name: Sign APK
         run: |
           echo "${{ secrets.SIGNING_KEY }}" | base64 -d > release.jks
-          UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          UNSIGNED_APK=$(find app/build/outputs/apk/debug -name "*.apk" | head -n 1)
           $ANDROID_HOME/build-tools/35.0.0/apksigner sign \
             --ks release.jks \
             --ks-key-alias "${{ secrets.ALIAS }}" \
             --ks-pass "pass:${{ secrets.KEY_STORE_PASSWORD }}" \
             --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
-            --out app/build/outputs/apk/release/app-release_signed.apk \
+            --out app/build/outputs/apk/debug/app-debug_signed.apk \
             "$UNSIGNED_APK"
 
       - name: Cleanup
@@ -64,7 +68,7 @@ jobs:
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          files: app/build/outputs/apk/release/app-release_signed.apk
+          files: app/build/outputs/apk/debug/app-debug_signed.apk
           tag_name: v${{ github.run_number }}
           name: "Release v${{ github.run_number }}"
           draft: false
