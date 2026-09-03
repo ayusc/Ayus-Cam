@@ -16,6 +16,13 @@ import android.hardware.camera2.params.InputConfiguration;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.media.MediaPlayer;
+import android.opengl.EGL14;
+import android.opengl.EGLConfig;
+import android.opengl.EGLContext;
+import android.opengl.EGLDisplay;
+import android.opengl.EGLSurface;
+import android.opengl.GLES11Ext;
+import android.opengl.GLES20;
 import android.os.Build;
 import android.os.Handler;
 import android.view.Surface;
@@ -23,6 +30,9 @@ import android.view.Surface;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileWriter;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,32 +54,21 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private static Surface fake_Surface;
     private static SurfaceTexture fake_SurfaceTexture;
-    private static MediaPlayer mediaPlayer;
     
-    private static Thread videoMonitorThread;
-    private static volatile boolean monitorVideo = false;
-
     private static Context appContext;
-    private static Thread imageRenderThread;
-    private static volatile boolean renderImage = false;
     
-    private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    // Media Playback control
+    private static Thread renderThread;
+    private static volatile boolean renderActive = false;
+    
+    // EGL Video renderer control
+    private static GLVideoRenderer glVideoRenderer;
 
+    private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
 
     private static Surface activePreviewSurface = null;
     private static Surface currentPlayingSurface = null;
-
-    // Cache metrics
-    private static Bitmap cachedBitmap = null;
-    private static String cachedImagePath = "";
-    private static int cachedWidth = 0;
-    private static int cachedHeight = 0;
-    private static int cachedRotation = 0;
-    private static String cachedScaleMode = "";
-    private static float cachedZoom = -1;
-    private static int cachedPanX = -9999;
-    private static int cachedPanY = -9999;
 
     private static AppConfig getLiveConfig() {
         return AppConfig.load();
@@ -92,10 +91,9 @@ public class HookMain implements IXposedHookLoadPackage {
         return fake_Surface;
     }
 
-    // Fixed to be clean without brackets
     private static void writeLog(String text) {
         String timestamp = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
-        String logEntry = timestamp + " | " + text;
+        String logEntry = timestamp + "  " + text;
         XposedBridge.log("AyusCam: " + logEntry);
         try {
             File logFile = new File(AppConfig.LOG_FILE);
@@ -127,6 +125,7 @@ public class HookMain implements IXposedHookLoadPackage {
                         protected void afterHookedMethod(MethodHookParam param) {
                             if (param.args[0] instanceof Application) {
                                 appContext = ((Application) param.args[0]).getApplicationContext();
+                                writeLog("Module initialized for: " + lpparam.packageName);
                             }
                         }
                     });
@@ -215,14 +214,16 @@ public class HookMain implements IXposedHookLoadPackage {
                             int targetW = picSize != null ? picSize.width : 1920;
                             int targetH = picSize != null ? picSize.height : 1080;
 
-                            Bitmap finalBitmap = getCachedScaledBitmap(config.getActiveMediaPath(), targetW, targetH, config);
+                            Bitmap finalBitmap = generateStaticImage(config.getActiveMediaPath(), targetW, targetH, config);
                             if (finalBitmap != null) {
                                 ByteArrayOutputStream stream = new ByteArrayOutputStream();
                                 finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
                                 byte[] jpegData = stream.toByteArray();
+                                finalBitmap.recycle();
 
                                 Object jpegCallback = param.args[3];
                                 if (jpegCallback != null) {
+                                    writeLog("Virtual photo captured successfully");
                                     XposedHelpers.callMethod(jpegCallback, "onPictureTaken", jpegData, camera);
                                 }
                                 param.setResult(null);
@@ -257,12 +258,12 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private void hookCamera2DeviceCallbacks(Class<?> stateCallbackClass) {
         if (!hooked_classes.add(stateCallbackClass)) return;
-
         try {
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onOpened", CameraDevice.class, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
                     CameraDevice device = (CameraDevice) param.args[0];
+                    writeLog("Camera interface opened: " + device.getId());
                     hookCamera2Sessions(device.getClass());
                 }
             });
@@ -270,6 +271,7 @@ public class HookMain implements IXposedHookLoadPackage {
             XC_MethodHook cleanupHook = new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
+                    writeLog("Camera interface closed");
                     activePreviewSurface = null;
                     currentPlayingSurface = null;
                     stopMediaPlayback();
@@ -277,7 +279,6 @@ public class HookMain implements IXposedHookLoadPackage {
             };
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onClosed", CameraDevice.class, cleanupHook);
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onDisconnected", CameraDevice.class, cleanupHook);
-
         } catch (Throwable ignored) {}
     }
 
@@ -353,7 +354,6 @@ public class HookMain implements IXposedHookLoadPackage {
                                     fakeConfig.setInputConfiguration(originalConfig.getInputConfiguration());
                                 }
                             } catch (Exception ignored) {}
-
                             fakeConfig.setSessionParameters(originalConfig.getSessionParameters());
                             param.args[0] = fakeConfig;
                         }
@@ -373,74 +373,42 @@ public class HookMain implements IXposedHookLoadPackage {
         stopMediaPlayback();
 
         if ("VIDEO".equals(config.getActiveMediaType())) {
-            mediaPlayer = new MediaPlayer();
-            try {
-                mediaPlayer.setSurface(targetSurface);
-                mediaPlayer.setDataSource(config.getActiveMediaPath());
-                mediaPlayer.setLooping(true);
-                mediaPlayer.setVolume(config.volume / 100f, config.volume / 100f);
-
-                if ("FILL".equals(config.scaleMode)) {
-                    mediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING);
-                } else {
-                    mediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
-                }
-
-                mediaPlayer.setOnPreparedListener(MediaPlayer::start);
-                mediaPlayer.prepareAsync();
-                
-                // Active configuration monitor daemon for dynamically handling Play/Pause requests
-                monitorVideo = true;
-                videoMonitorThread = new Thread(() -> {
-                    boolean wasPaused = false;
-                    while (monitorVideo && mediaPlayer != null) {
-                        try {
-                            AppConfig cfg = getLiveConfig();
-                            if (cfg.isPaused && !wasPaused) {
-                                mediaPlayer.pause();
-                                wasPaused = true;
-                            } else if (!cfg.isPaused && wasPaused) {
-                                mediaPlayer.start();
-                                wasPaused = false;
-                            }
-                            Thread.sleep(300);
-                        } catch (Exception ignored) {}
-                    }
-                });
-                videoMonitorThread.start();
-                
-            } catch (Exception ignored) {}
+            writeLog("Starting video rendering stream");
+            glVideoRenderer = new GLVideoRenderer(targetSurface, config.getActiveMediaPath());
+            glVideoRenderer.start();
         } else if ("IMAGE".equals(config.getActiveMediaType())) {
+            writeLog("Starting image rendering stream");
             startImageRenderLoop(targetSurface, config);
         }
     }
 
     private static void stopMediaPlayback() {
-        stopImageRenderLoop();
-        
-        monitorVideo = false;
-        if (videoMonitorThread != null) {
-            try { videoMonitorThread.join(200); } catch (Exception ignored) {}
-            videoMonitorThread = null;
+        if (renderThread != null || glVideoRenderer != null) {
+            writeLog("Stopping active media streams");
         }
         
-        if (mediaPlayer != null) {
-            try {
-                mediaPlayer.stop();
-                mediaPlayer.reset();
-                mediaPlayer.release();
-            } catch (Exception ignored) {}
-            mediaPlayer = null;
+        renderActive = false;
+        if (renderThread != null) {
+            try { renderThread.join(200); } catch (Exception ignored) {}
+            renderThread = null;
+        }
+        
+        if (glVideoRenderer != null) {
+            glVideoRenderer.release();
+            glVideoRenderer = null;
         }
     }
 
+    // High performance memory safe Canvas matrix drawing
     private static void startImageRenderLoop(Surface surface, AppConfig initialConfig) {
-        renderImage = true;
-        imageRenderThread = new Thread(() -> {
+        renderActive = true;
+        renderThread = new Thread(() -> {
             long lastConfigMod = 0;
             AppConfig localConfig = initialConfig;
+            Bitmap activeBitmap = null;
+            String loadedPath = "";
 
-            while (renderImage) {
+            while (renderActive) {
                 try {
                     long currentMod = new File(AppConfig.CONFIG_FILE).lastModified();
                     if (currentMod > lastConfigMod) {
@@ -449,97 +417,369 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
 
                     if (surface != null && surface.isValid()) {
-                        Canvas canvas = surface.lockCanvas(null);
+                        Canvas canvas = null;
+                        try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                canvas = surface.lockHardwareCanvas();
+                            } else {
+                                canvas = surface.lockCanvas(null);
+                            }
+                        } catch (Exception ignored) {}
+                        
                         if (canvas != null) {
-                            Bitmap bitmap = getCachedScaledBitmap(localConfig.getActiveMediaPath(), canvas.getWidth(), canvas.getHeight(), localConfig);
+                            String targetPath = localConfig.getActiveMediaPath();
+                            if (activeBitmap == null || !loadedPath.equals(targetPath)) {
+                                if (activeBitmap != null) activeBitmap.recycle();
+                                activeBitmap = BitmapFactory.decodeFile(targetPath);
+                                loadedPath = targetPath;
+                            }
+
                             canvas.drawColor(Color.BLACK);
-                            
-                            // Prevent render when Zoom is exactly 0 or paused manually
-                            if (bitmap != null && localConfig.zoom > 0 && !localConfig.isPaused) {
-                                canvas.drawBitmap(bitmap, 0, 0, null);
+
+                            if (activeBitmap != null && localConfig.zoom > 0 && !localConfig.isPaused) {
+                                int viewW = canvas.getWidth();
+                                int viewH = canvas.getHeight();
+                                int bmpW = activeBitmap.getWidth();
+                                int bmpH = activeBitmap.getHeight();
+
+                                Matrix m = new Matrix();
+                                m.postTranslate(-bmpW / 2f, -bmpH / 2f);
+
+                                float scaleX = 1f, scaleY = 1f;
+                                if ("STRETCH".equals(localConfig.scaleMode)) {
+                                    scaleX = (float) viewW / bmpW;
+                                    scaleY = (float) viewH / bmpH;
+                                } else {
+                                    float fitScale = Math.min((float) viewW / bmpW, (float) viewH / bmpH);
+                                    float fillScale = Math.max((float) viewW / bmpW, (float) viewH / bmpH);
+                                    float baseScale = "FIT".equals(localConfig.scaleMode) ? fitScale : fillScale;
+                                    scaleX = baseScale;
+                                    scaleY = baseScale;
+                                }
+                                m.postScale(scaleX, scaleY);
+
+                                float zoom = localConfig.zoom / 100f;
+                                m.postScale(zoom, zoom);
+                                m.postRotate(localConfig.rotation);
+                                
+                                m.postTranslate(viewW / 2f + localConfig.panX, viewH / 2f + localConfig.panY);
+                                canvas.drawBitmap(activeBitmap, m, null);
                             }
                             surface.unlockCanvasAndPost(canvas);
                         }
                     }
-                    Thread.sleep(33); // 30fps Loop Cycle
+                    Thread.sleep(33);
                 } catch (Exception ignored) {}
             }
+            if (activeBitmap != null && !activeBitmap.isRecycled()) {
+                activeBitmap.recycle();
+            }
         });
-        imageRenderThread.start();
+        renderThread.start();
     }
 
-    private static void stopImageRenderLoop() {
-        renderImage = false;
-        if (imageRenderThread != null) {
-            try { imageRenderThread.join(200); } catch (Exception ignored) {}
-            imageRenderThread = null;
-        }
-    }
-
-    // Now correctly utilizing Matrix scaling/translation on canvas to natively support Zoom, Pan, and Rotate properly
-    private static Bitmap getCachedScaledBitmap(String imagePath, int targetWidth, int targetHeight, AppConfig config) {
-        if (cachedBitmap != null && imagePath.equals(cachedImagePath) && targetWidth == cachedWidth && 
-            targetHeight == cachedHeight && config.rotation == cachedRotation && 
-            config.scaleMode.equals(cachedScaleMode) && config.zoom == cachedZoom && 
-            config.panX == cachedPanX && config.panY == cachedPanY) {
-            return cachedBitmap;
-        }
-
-        if (cachedBitmap != null && !cachedBitmap.isRecycled()) {
-            cachedBitmap.recycle();
-            cachedBitmap = null;
-        }
-
+    private static Bitmap generateStaticImage(String imagePath, int targetWidth, int targetHeight, AppConfig config) {
         Bitmap original = BitmapFactory.decodeFile(imagePath);
         if (original == null) return null;
 
-        cachedBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(cachedBitmap);
-        Matrix matrix = new Matrix();
+        Bitmap outBmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(outBmp);
+        canvas.drawColor(Color.BLACK);
 
-        float srcW = original.getWidth();
-        float srcH = original.getHeight();
+        Matrix m = new Matrix();
+        m.postTranslate(-original.getWidth() / 2f, -original.getHeight() / 2f);
 
         float scaleX = 1f, scaleY = 1f;
-
         if ("STRETCH".equals(config.scaleMode)) {
-            scaleX = targetWidth / srcW;
-            scaleY = targetHeight / srcH;
+            scaleX = (float) targetWidth / original.getWidth();
+            scaleY = (float) targetHeight / original.getHeight();
         } else {
-            float fitScale = Math.min(targetWidth / srcW, targetHeight / srcH);
-            float fillScale = Math.max(targetWidth / srcW, targetHeight / srcH);
-            scaleX = scaleY = "FIT".equals(config.scaleMode) ? fitScale : fillScale;
+            float fitScale = Math.min((float) targetWidth / original.getWidth(), (float) targetHeight / original.getHeight());
+            float fillScale = Math.max((float) targetWidth / original.getWidth(), (float) targetHeight / original.getHeight());
+            float baseScale = "FIT".equals(config.scaleMode) ? fitScale : fillScale;
+            scaleX = baseScale;
+            scaleY = baseScale;
         }
+        m.postScale(scaleX, scaleY);
+        
+        float zoom = config.zoom / 100f;
+        m.postScale(zoom, zoom);
+        m.postRotate(config.rotation);
+        m.postTranslate(targetWidth / 2f + config.panX, targetHeight / 2f + config.panY);
 
-        float zoomFactor = config.zoom / 100f;
-        scaleX *= zoomFactor;
-        scaleY *= zoomFactor;
-
-        float currentW = srcW * scaleX;
-        float currentH = srcH * scaleY;
-
-        float dx = (targetWidth - currentW) / 2f + config.panX;
-        float dy = (targetHeight - currentH) / 2f + config.panY;
-
-        matrix.postScale(scaleX, scaleY);
-        matrix.postTranslate(dx, dy);
-
-        if (config.rotation != 0) {
-            matrix.postRotate(config.rotation, targetWidth / 2f, targetHeight / 2f);
-        }
-
-        canvas.drawBitmap(original, matrix, null);
+        canvas.drawBitmap(original, m, null);
         original.recycle();
+        return outBmp;
+    }
 
-        cachedImagePath = imagePath;
-        cachedWidth = targetWidth;
-        cachedHeight = targetHeight;
-        cachedRotation = config.rotation;
-        cachedScaleMode = config.scaleMode;
-        cachedZoom = config.zoom;
-        cachedPanX = config.panX;
-        cachedPanY = config.panY;
+    // --- EGL VIDEO RENDERER FOR HARDWARE MANIPULATION --- //
+    private static class GLVideoRenderer extends Thread implements SurfaceTexture.OnFrameAvailableListener {
+        private final Surface mOutputSurface;
+        private final String mVideoPath;
+        
+        private EGLDisplay mEGLDisplay = EGL14.EGL_NO_DISPLAY;
+        private EGLContext mEGLContext = EGL14.EGL_NO_CONTEXT;
+        private EGLSurface mEGLSurface = EGL14.EGL_NO_SURFACE;
+        
+        private int mProgram;
+        private int mTextureID;
+        private SurfaceTexture mSurfaceTexture;
+        private Surface mInputSurface;
+        private MediaPlayer mMediaPlayer;
+        
+        private boolean mRunning = false;
+        private boolean mFrameAvailable = false;
+        private final Object mFrameSyncObject = new Object();
+        
+        private float[] mSTMatrix = new float[16];
+        
+        private static final String VERTEX_SHADER =
+                "uniform mat4 uSTMatrix;\n" +
+                "uniform mat4 uMVPMatrix;\n" +
+                "attribute vec4 aPosition;\n" +
+                "attribute vec4 aTextureCoord;\n" +
+                "varying vec2 vTextureCoord;\n" +
+                "void main() {\n" +
+                "  gl_Position = uMVPMatrix * aPosition;\n" +
+                "  vTextureCoord = (uSTMatrix * aTextureCoord).xy;\n" +
+                "}\n";
 
-        return cachedBitmap;
+        private static final String FRAGMENT_SHADER =
+                "#extension GL_OES_EGL_image_external : require\n" +
+                "precision mediump float;\n" +
+                "varying vec2 vTextureCoord;\n" +
+                "uniform samplerExternalOES sTexture;\n" +
+                "void main() {\n" +
+                "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
+                "}\n";
+
+        private final float[] mTriangleVerticesData = {
+                -1.0f, -1.0f, 0, 0.f, 0.f,
+                 1.0f, -1.0f, 0, 1.f, 0.f,
+                -1.0f,  1.0f, 0, 0.f, 1.f,
+                 1.0f,  1.0f, 0, 1.f, 1.f,
+        };
+        private FloatBuffer mTriangleVertices;
+
+        public GLVideoRenderer(Surface targetSurface, String videoPath) {
+            this.mOutputSurface = targetSurface;
+            this.mVideoPath = videoPath;
+            mTriangleVertices = ByteBuffer.allocateDirect(mTriangleVerticesData.length * 4)
+                    .order(ByteOrder.nativeOrder()).asFloatBuffer();
+            mTriangleVertices.put(mTriangleVerticesData).position(0);
+        }
+
+        @Override
+        public void run() {
+            mRunning = true;
+            initEGL();
+            initGL();
+            
+            mSurfaceTexture = new SurfaceTexture(mTextureID);
+            mSurfaceTexture.setOnFrameAvailableListener(this);
+            mInputSurface = new Surface(mSurfaceTexture);
+            
+            mMediaPlayer = new MediaPlayer();
+            try {
+                mMediaPlayer.setSurface(mInputSurface);
+                mMediaPlayer.setDataSource(mVideoPath);
+                mMediaPlayer.setLooping(true);
+                AppConfig startCfg = getLiveConfig();
+                mMediaPlayer.setVolume(startCfg.volume / 100f, startCfg.volume / 100f);
+                mMediaPlayer.prepare();
+                if (!startCfg.isPaused) {
+                    mMediaPlayer.start();
+                }
+            } catch (Exception e) {
+                writeLog("Video decoder failure: " + e.getMessage());
+                mRunning = false;
+            }
+
+            long lastConfigMod = 0;
+            AppConfig localConfig = getLiveConfig();
+            boolean wasPaused = localConfig.isPaused;
+
+            while (mRunning) {
+                boolean frameUpdated = false;
+                synchronized (mFrameSyncObject) {
+                    try { mFrameSyncObject.wait(33); } catch (InterruptedException e) {}
+                    if (mFrameAvailable) {
+                        mFrameAvailable = false;
+                        mSurfaceTexture.updateTexImage();
+                        mSurfaceTexture.getTransformMatrix(mSTMatrix);
+                        frameUpdated = true;
+                    }
+                }
+
+                // Poll Config dynamically
+                long currentMod = new File(AppConfig.CONFIG_FILE).lastModified();
+                if (currentMod > lastConfigMod) {
+                    localConfig = AppConfig.load();
+                    lastConfigMod = currentMod;
+                    
+                    if (localConfig.isPaused && !wasPaused) {
+                        mMediaPlayer.pause();
+                        wasPaused = true;
+                    } else if (!localConfig.isPaused && wasPaused) {
+                        mMediaPlayer.start();
+                        wasPaused = false;
+                    }
+                    mMediaPlayer.setVolume(localConfig.volume / 100f, localConfig.volume / 100f);
+                }
+
+                if (mRunning) {
+                    drawFrame(localConfig);
+                    EGL14.eglSwapBuffers(mEGLDisplay, mEGLSurface);
+                }
+            }
+            
+            if (mMediaPlayer != null) {
+                mMediaPlayer.stop();
+                mMediaPlayer.release();
+            }
+            releaseEGL();
+        }
+
+        private void drawFrame(AppConfig config) {
+            GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+
+            // Avoid drawing if zoom is explicitly set to 0 by the user
+            if (config.zoom == 0) return;
+
+            GLES20.glUseProgram(mProgram);
+
+            int muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uSTMatrix");
+            int muMVPMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uMVPMatrix");
+            int maPositionHandle = GLES20.glGetAttribLocation(mProgram, "aPosition");
+            int maTextureHandle = GLES20.glGetAttribLocation(mProgram, "aTextureCoord");
+
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
+
+            mTriangleVertices.position(0);
+            GLES20.glVertexAttribPointer(maPositionHandle, 3, GLES20.GL_FLOAT, false, 20, mTriangleVertices);
+            GLES20.glEnableVertexAttribArray(maPositionHandle);
+
+            mTriangleVertices.position(3);
+            GLES20.glVertexAttribPointer(maTextureHandle, 2, GLES20.GL_FLOAT, false, 20, mTriangleVertices);
+            GLES20.glEnableVertexAttribArray(maTextureHandle);
+
+            GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, mSTMatrix, 0);
+
+            // Establish the complex Hardware Matrices
+            float[] mvpMatrix = new float[16];
+            android.opengl.Matrix.setIdentityM(mvpMatrix, 0);
+            
+            float glPanX = config.panX / 500f;
+            float glPanY = -config.panY / 500f; // EGL Y axis is inverted naturally
+            android.opengl.Matrix.translateM(mvpMatrix, 0, glPanX, glPanY, 0f);
+            
+            float zoom = config.zoom / 100f;
+            android.opengl.Matrix.scaleM(mvpMatrix, 0, zoom, zoom, 1f);
+            
+            android.opengl.Matrix.rotateM(mvpMatrix, 0, -config.rotation, 0f, 0f, 1f);
+            
+            float scaleX = 1f, scaleY = 1f;
+            int videoW = mMediaPlayer.getVideoWidth();
+            int videoH = mMediaPlayer.getVideoHeight();
+            
+            if (videoW > 0 && videoH > 0) {
+                float videoAspect = (float) videoW / videoH;
+                
+                // Typical viewport aspect - assuming mostly 16:9 portraits for standard camera intercepts
+                float viewAspect = 9f / 16f; 
+                
+                if ("STRETCH".equals(config.scaleMode)) {
+                    scaleX = 1f; scaleY = 1f;
+                } else if ("FIT".equals(config.scaleMode)) {
+                    if (videoAspect > viewAspect) {
+                        scaleY = viewAspect / videoAspect;
+                    } else {
+                        scaleX = videoAspect / viewAspect;
+                    }
+                } else if ("FILL".equals(config.scaleMode)) {
+                    if (videoAspect > viewAspect) {
+                        scaleX = videoAspect / viewAspect;
+                    } else {
+                        scaleY = viewAspect / videoAspect;
+                    }
+                }
+            }
+            android.opengl.Matrix.scaleM(mvpMatrix, 0, scaleX, scaleY, 1f);
+            
+            GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mvpMatrix, 0);
+
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+        }
+
+        @Override
+        public void onFrameAvailable(SurfaceTexture surfaceTexture) {
+            synchronized (mFrameSyncObject) {
+                mFrameAvailable = true;
+                mFrameSyncObject.notifyAll();
+            }
+        }
+
+        public void release() {
+            mRunning = false;
+            interrupt();
+        }
+
+        private void initEGL() {
+            mEGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+            int[] version = new int[2];
+            EGL14.eglInitialize(mEGLDisplay, version, 0, version, 1);
+            int[] attribList = {
+                    EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_NONE
+            };
+            EGLConfig[] configs = new EGLConfig[1];
+            int[] numConfigs = new int[1];
+            EGL14.eglChooseConfig(mEGLDisplay, attribList, 0, configs, 0, configs.length, numConfigs, 0);
+            int[] contextAttribs = { EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE };
+            mEGLContext = EGL14.eglCreateContext(mEGLDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0);
+            int[] surfaceAttribs = { EGL14.EGL_NONE };
+            mEGLSurface = EGL14.eglCreateWindowSurface(mEGLDisplay, configs[0], mOutputSurface, surfaceAttribs, 0);
+            EGL14.eglMakeCurrent(mEGLDisplay, mEGLSurface, mEGLSurface, mEGLContext);
+        }
+
+        private void initGL() {
+            int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, VERTEX_SHADER);
+            int fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, FRAGMENT_SHADER);
+            mProgram = GLES20.glCreateProgram();
+            GLES20.glAttachShader(mProgram, vertexShader);
+            GLES20.glAttachShader(mProgram, fragmentShader);
+            GLES20.glLinkProgram(mProgram);
+
+            int[] textures = new int[1];
+            GLES20.glGenTextures(1, textures, 0);
+            mTextureID = textures[0];
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
+            GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
+            GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        }
+
+        private int loadShader(int type, String shaderCode) {
+            int shader = GLES20.glCreateShader(type);
+            GLES20.glShaderSource(shader, shaderCode);
+            GLES20.glCompileShader(shader);
+            return shader;
+        }
+
+        private void releaseEGL() {
+            if (mEGLDisplay != EGL14.EGL_NO_DISPLAY) {
+                EGL14.eglMakeCurrent(mEGLDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
+                EGL14.eglDestroySurface(mEGLDisplay, mEGLSurface);
+                EGL14.eglDestroyContext(mEGLDisplay, mEGLContext);
+                EGL14.eglReleaseThread();
+                EGL14.eglTerminate(mEGLDisplay);
+            }
+            mEGLDisplay = EGL14.EGL_NO_DISPLAY;
+            mEGLContext = EGL14.EGL_NO_CONTEXT;
+            mEGLSurface = EGL14.EGL_NO_SURFACE;
+        }
     }
 }

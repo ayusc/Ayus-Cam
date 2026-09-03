@@ -8,9 +8,11 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -20,6 +22,7 @@ import java.util.LinkedList;
 import java.util.Locale;
 
 public class StatusFragment extends Fragment {
+
     private TextView tvDaemonState, tvSocketStatus, tvRotationState, tvZoomState, tvScaleState, tvConsoleLogs;
     private View scrollConsoleLogs;
     private Button btnClearLogs;
@@ -29,6 +32,7 @@ public class StatusFragment extends Fragment {
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View root = inflater.inflate(R.layout.fragment_status, container, false);
+
         tvDaemonState = root.findViewById(R.id.tv_daemon_state);
         tvSocketStatus = root.findViewById(R.id.tv_socket_status);
         tvRotationState = root.findViewById(R.id.tv_status_rotation);
@@ -37,7 +41,6 @@ public class StatusFragment extends Fragment {
         tvConsoleLogs = root.findViewById(R.id.tv_console_logs);
         scrollConsoleLogs = root.findViewById(R.id.scroll_console_logs);
         
-        // Fallback just in case XML wasn't updated
         if (scrollConsoleLogs == null && tvConsoleLogs != null) {
             scrollConsoleLogs = (View) tvConsoleLogs.getParent();
         }
@@ -81,7 +84,6 @@ public class StatusFragment extends Fragment {
         tvDaemonState.setTextColor(isActive ? 0xFF00E676 : 0xFFE53935);
         tvSocketStatus.setText("CONNECTED");
         
-        // FIXED: Added missing degree symbol and closed the string literal
         tvRotationState.setText(config.rotation + "°");
         tvZoomState.setText(config.zoom + "%");
         tvScaleState.setText(config.scaleMode);
@@ -94,7 +96,7 @@ public class StatusFragment extends Fragment {
         String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
         
         if (!logFile.exists()) {
-            tvConsoleLogs.setText("[" + time + "] App Opened.\n[" + time + "] Ready for camera replacement.");
+            tvConsoleLogs.setText(time + "  Process started\n" + time + "  Awaiting camera initialization");
             return;
         }
         
@@ -114,7 +116,7 @@ public class StatusFragment extends Fragment {
             }
             
             if (sb.length() == 0) {
-                sb.append("[").append(time).append("] App Opened.\n[").append(time).append("] Ready for camera replacement.\n");
+                sb.append(time).append("  Process started\n").append(time).append("  Awaiting camera initialization\n");
             }
             
             tvConsoleLogs.setText(sb.toString());
@@ -131,7 +133,7 @@ public class StatusFragment extends Fragment {
                 });
             }
         } catch (Exception e) {
-            tvConsoleLogs.setText("Error reading logs: " + e.getMessage());
+            tvConsoleLogs.setText("Log error: " + e.getMessage());
         }
     }
-} // FIXED: Added missing closing bracket
+}
