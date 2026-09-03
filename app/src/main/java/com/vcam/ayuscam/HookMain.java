@@ -51,7 +51,6 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class HookMain implements IXposedHookLoadPackage {
-
     private static Surface fake_Surface;
     private static SurfaceTexture fake_SurfaceTexture;
     
@@ -66,19 +65,20 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
-
     private static Surface activePreviewSurface = null;
     private static Surface currentPlayingSurface = null;
 
     private static AppConfig getLiveConfig() {
-        return AppConfig.load();
+        return AppConfig.load(appContext);
     }
 
     private static boolean isSubstitutionActive() {
         AppConfig config = getLiveConfig();
         if (!config.enabled) return false;
+
         String path = config.getActiveMediaPath();
         if (path == null || path.trim().isEmpty()) return false;
+
         File file = new File(path);
         return file.exists() && file.canRead();
     }
@@ -95,6 +95,7 @@ public class HookMain implements IXposedHookLoadPackage {
         String timestamp = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
         String logEntry = timestamp + "  " + text;
         XposedBridge.log("AyusCam: " + logEntry);
+
         try {
             File logFile = new File(AppConfig.LOG_FILE);
             if (!logFile.exists()) {
@@ -108,6 +109,7 @@ public class HookMain implements IXposedHookLoadPackage {
             }
             logFile.setReadable(true, false);
             logFile.setWritable(true, false);
+
             try (FileWriter fw = new FileWriter(logFile, true)) {
                 fw.write(logEntry + "\n");
             }
@@ -163,6 +165,7 @@ public class HookMain implements IXposedHookLoadPackage {
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!isSubstitutionActive()) return;
                     Surface originalSurface = (Surface) param.args[0];
+
                     if (originalSurface != null && originalSurface.equals(activePreviewSurface)) {
                         activePreviewSurface = null;
                         currentPlayingSurface = null;
@@ -190,6 +193,7 @@ public class HookMain implements IXposedHookLoadPackage {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
                             if (!isSubstitutionActive()) return;
+
                             SurfaceTexture realST = (SurfaceTexture) param.args[0];
                             if (realST != null) {
                                 startMediaPlayback(new Surface(realST));
@@ -206,6 +210,7 @@ public class HookMain implements IXposedHookLoadPackage {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
                             if (!isSubstitutionActive()) return;
+
                             AppConfig config = getLiveConfig();
                             if (!"IMAGE".equals(config.getActiveMediaType())) return;
 
@@ -367,7 +372,6 @@ public class HookMain implements IXposedHookLoadPackage {
         if (targetSurface == null || !targetSurface.isValid() || targetSurface == currentPlayingSurface) {
             return;
         }
-
         currentPlayingSurface = targetSurface;
         AppConfig config = getLiveConfig();
         stopMediaPlayback();
@@ -402,6 +406,7 @@ public class HookMain implements IXposedHookLoadPackage {
     // High performance memory safe Canvas matrix drawing
     private static void startImageRenderLoop(Surface surface, AppConfig initialConfig) {
         renderActive = true;
+
         renderThread = new Thread(() -> {
             long lastConfigMod = 0;
             AppConfig localConfig = initialConfig;
@@ -410,9 +415,23 @@ public class HookMain implements IXposedHookLoadPackage {
 
             while (renderActive) {
                 try {
-                    long currentMod = new File(AppConfig.CONFIG_FILE).lastModified();
+                    long currentMod = 0;
+                    File globalConfig = new File(AppConfig.CONFIG_FILE);
+                    if (globalConfig.exists() && globalConfig.canRead()) {
+                        currentMod = globalConfig.lastModified();
+                    } else if (appContext != null) {
+                        File extFilesDir = appContext.getExternalFilesDir(null);
+                        if (extFilesDir != null) {
+                            File privConfig = new File(extFilesDir, "Camera1/config.json");
+                            if (privConfig.exists() && privConfig.canRead()) {
+                                currentMod = privConfig.lastModified();
+                            }
+                        }
+                    }
+                    if (currentMod == 0) currentMod = 1;
+
                     if (currentMod > lastConfigMod) {
-                        localConfig = AppConfig.load();
+                        localConfig = getLiveConfig();
                         lastConfigMod = currentMod;
                     }
 
@@ -428,6 +447,7 @@ public class HookMain implements IXposedHookLoadPackage {
                         if (canvas != null) {
                             try {
                                 String targetPath = localConfig.getActiveMediaPath();
+
                                 if (activeBitmap == null || !loadedPath.equals(targetPath)) {
                                     if (activeBitmap != null) activeBitmap.recycle();
                                     activeBitmap = BitmapFactory.decodeFile(targetPath);
@@ -507,10 +527,11 @@ public class HookMain implements IXposedHookLoadPackage {
         float zoom = config.zoom / 100f;
         m.postScale(zoom, zoom);
         m.postRotate(config.rotation);
-        m.postTranslate(targetWidth / 2f + config.panX, targetHeight / 2f + config.panY);
 
+        m.postTranslate(targetWidth / 2f + config.panX, targetHeight / 2f + config.panY);
         canvas.drawBitmap(original, m, null);
         original.recycle();
+
         return outBmp;
     }
 
@@ -588,6 +609,7 @@ public class HookMain implements IXposedHookLoadPackage {
                 mMediaPlayer.setSurface(mInputSurface);
                 mMediaPlayer.setDataSource(mVideoPath);
                 mMediaPlayer.setLooping(true);
+
                 AppConfig startCfg = getLiveConfig();
                 mMediaPlayer.setVolume(startCfg.volume / 100f, startCfg.volume / 100f);
                 mMediaPlayer.prepare(); // Synchronous prepare since it's a local file
@@ -621,9 +643,23 @@ public class HookMain implements IXposedHookLoadPackage {
                 }
 
                 // Poll Config dynamically
-                long currentMod = new File(AppConfig.CONFIG_FILE).lastModified();
+                long currentMod = 0;
+                File globalConfig = new File(AppConfig.CONFIG_FILE);
+                if (globalConfig.exists() && globalConfig.canRead()) {
+                    currentMod = globalConfig.lastModified();
+                } else if (appContext != null) {
+                    File extFilesDir = appContext.getExternalFilesDir(null);
+                    if (extFilesDir != null) {
+                        File privConfig = new File(extFilesDir, "Camera1/config.json");
+                        if (privConfig.exists() && privConfig.canRead()) {
+                            currentMod = privConfig.lastModified();
+                        }
+                    }
+                }
+                if (currentMod == 0) currentMod = 1;
+
                 if (currentMod > lastConfigMod) {
-                    localConfig = AppConfig.load();
+                    localConfig = getLiveConfig();
                     lastConfigMod = currentMod;
                     
                     if (localConfig.isPaused && !wasPaused) {
@@ -704,7 +740,7 @@ public class HookMain implements IXposedHookLoadPackage {
             
             if (videoW > 0 && videoH > 0) {
                 float videoAspect = (float) videoW / videoH;
-                float viewAspect = (float) width[0] / height[0]; 
+                float viewAspect = (float) width[0] / height[0];
                 
                 if ("STRETCH".equals(config.scaleMode)) {
                     scaleX = 1f; scaleY = 1f;
@@ -746,6 +782,7 @@ public class HookMain implements IXposedHookLoadPackage {
             mEGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
             int[] version = new int[2];
             EGL14.eglInitialize(mEGLDisplay, version, 0, version, 1);
+
             int[] attribList = {
                     EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
                     EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_NONE
@@ -761,6 +798,7 @@ public class HookMain implements IXposedHookLoadPackage {
             
             int[] contextAttribs = { EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE };
             mEGLContext = EGL14.eglCreateContext(mEGLDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0);
+
             int[] surfaceAttribs = { EGL14.EGL_NONE };
             mEGLSurface = EGL14.eglCreateWindowSurface(mEGLDisplay, configs[0], mOutputSurface, surfaceAttribs, 0);
             
@@ -776,6 +814,7 @@ public class HookMain implements IXposedHookLoadPackage {
         private void initGL() {
             int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, VERTEX_SHADER);
             int fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, FRAGMENT_SHADER);
+
             mProgram = GLES20.glCreateProgram();
             GLES20.glAttachShader(mProgram, vertexShader);
             GLES20.glAttachShader(mProgram, fragmentShader);
@@ -786,6 +825,7 @@ public class HookMain implements IXposedHookLoadPackage {
             int[] textures = new int[1];
             GLES20.glGenTextures(1, textures, 0);
             mTextureID = textures[0];
+
             GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
             GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
             GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
