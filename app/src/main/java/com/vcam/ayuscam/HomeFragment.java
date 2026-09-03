@@ -47,7 +47,9 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private MediaPlayer mediaPlayer;
     private Camera mCamera;
     private int currentCameraId = Camera.CameraInfo.CAMERA_FACING_BACK;
-    private boolean isPreviewRunning = false;
+    
+    // FIXED: Made static so it survives Fragment recreation when switching tabs
+    private static boolean isPreviewRunning = false; 
 
     private final ActivityResultLauncher<String[]> pickPhotoLauncher = registerForActivityResult(
             new ActivityResultContracts.OpenDocument(), uri -> handleMediaResult(uri, "IMAGE"));
@@ -90,6 +92,13 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         });
 
         btnTogglePreview.setOnClickListener(v -> {
+            isPreviewRunning = !isPreviewRunning;
+            updateUI();
+            restartPreviewMode();
+        });
+        
+        // FIXED: Added click listener to toggle preview by clicking the ON/OFF text
+        tvBadgePreviewState.setOnClickListener(v -> {
             isPreviewRunning = !isPreviewRunning;
             updateUI();
             restartPreviewMode();

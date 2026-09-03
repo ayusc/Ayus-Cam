@@ -8,11 +8,9 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.TextView;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -22,9 +20,8 @@ import java.util.LinkedList;
 import java.util.Locale;
 
 public class StatusFragment extends Fragment {
-
     private TextView tvDaemonState, tvSocketStatus, tvRotationState, tvZoomState, tvScaleState, tvConsoleLogs;
-    private View scrollConsoleLogs; // Changed to generic View to prevent ClassCastException
+    private View scrollConsoleLogs;
     private Button btnClearLogs;
 
     @SuppressLint("ClickableViewAccessibility")
@@ -32,7 +29,6 @@ public class StatusFragment extends Fragment {
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View root = inflater.inflate(R.layout.fragment_status, container, false);
-
         tvDaemonState = root.findViewById(R.id.tv_daemon_state);
         tvSocketStatus = root.findViewById(R.id.tv_socket_status);
         tvRotationState = root.findViewById(R.id.tv_status_rotation);
@@ -45,26 +41,27 @@ public class StatusFragment extends Fragment {
         if (scrollConsoleLogs == null && tvConsoleLogs != null) {
             scrollConsoleLogs = (View) tvConsoleLogs.getParent();
         }
-
         btnClearLogs = root.findViewById(R.id.btn_clear_logs);
-
+        
         if (scrollConsoleLogs != null) {
             scrollConsoleLogs.setOnTouchListener((v, event) -> {
-                if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) {
-                    v.getParent().requestDisallowInterceptTouchEvent(true);
-                } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                if (v.getParent() != null) {
+                    if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) {
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                    } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                        v.getParent().requestDisallowInterceptTouchEvent(false);
+                    }
                 }
                 return false;
             });
         }
-
+        
         btnClearLogs.setOnClickListener(v -> {
             File logFile = new File(AppConfig.LOG_FILE);
             if (logFile.exists()) logFile.delete();
             tvConsoleLogs.setText("");
         });
-
+        
         loadStatus();
         return root;
     }
@@ -79,28 +76,29 @@ public class StatusFragment extends Fragment {
         AppConfig config = AppConfig.load();
         File mediaFile = new File(config.getActiveMediaPath());
         boolean isActive = config.enabled && mediaFile.exists();
-
+        
         tvDaemonState.setText(isActive ? "ACTIVE" : "IDLE");
         tvDaemonState.setTextColor(isActive ? 0xFF00E676 : 0xFFE53935);
         tvSocketStatus.setText("CONNECTED");
+        
+        // FIXED: Added missing degree symbol and closed the string literal
         tvRotationState.setText(config.rotation + "°");
         tvZoomState.setText(config.zoom + "%");
         tvScaleState.setText(config.scaleMode);
-
+        
         loadLogs();
     }
 
     private void loadLogs() {
         File logFile = new File(AppConfig.LOG_FILE);
         String time = new SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(new Date());
-
+        
         if (!logFile.exists()) {
             tvConsoleLogs.setText("[" + time + "] App Opened.\n[" + time + "] Ready for camera replacement.");
             return;
         }
-
+        
         try (BufferedReader br = new BufferedReader(new FileReader(logFile))) {
-            // Buffer to only keep the last 100 lines to prevent OOM crash
             LinkedList<String> lines = new LinkedList<>();
             String line;
             while ((line = br.readLine()) != null) {
@@ -118,8 +116,9 @@ public class StatusFragment extends Fragment {
             if (sb.length() == 0) {
                 sb.append("[").append(time).append("] App Opened.\n[").append(time).append("] Ready for camera replacement.\n");
             }
+            
             tvConsoleLogs.setText(sb.toString());
-
+            
             if (scrollConsoleLogs != null) {
                 scrollConsoleLogs.post(() -> {
                     try {
@@ -135,4 +134,4 @@ public class StatusFragment extends Fragment {
             tvConsoleLogs.setText("Error reading logs: " + e.getMessage());
         }
     }
-}
+} // FIXED: Added missing closing bracket

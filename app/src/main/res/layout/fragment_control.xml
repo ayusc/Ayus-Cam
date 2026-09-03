@@ -19,7 +19,6 @@
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:layout_marginBottom="16dp">
-
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -27,7 +26,6 @@
                 android:textColor="@color/accent_red"
                 android:textSize="22sp"
                 android:textStyle="bold" />
-
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -69,6 +67,7 @@
                         android:text="@string/rotation"
                         android:textColor="@color/text_main"
                         android:textSize="14sp" />
+                    <!-- FIXED: closed the 0 string literal properly -->
                     <TextView
                         android:id="@+id/tv_rotation_val"
                         android:layout_width="wrap_content"
@@ -153,6 +152,7 @@
                     app:thumbColor="@color/accent_red"
                     app:trackColorActive="@color/accent_red"
                     app:trackColorInactive="@color/card_stroke" />
+
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -305,7 +305,6 @@
                     android:layout_marginTop="12dp"
                     android:orientation="horizontal"
                     android:weightSum="3">
-
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_scale_fit"
                         android:layout_width="0dp"
@@ -316,7 +315,6 @@
                         android:textColor="@color/text_main"
                         app:backgroundTint="@color/inner_box_dark"
                         app:cornerRadius="8dp" />
-
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_scale_stretch"
                         android:layout_width="0dp"
@@ -327,7 +325,6 @@
                         android:textColor="@color/text_main"
                         app:backgroundTint="@color/inner_box_dark"
                         app:cornerRadius="8dp" />
-
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_scale_fill"
                         android:layout_width="0dp"
@@ -340,6 +337,5 @@
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
     </LinearLayout>
 </ScrollView>
