@@ -22,6 +22,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileWriter;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -64,6 +65,15 @@ public class HookMain implements IXposedHookLoadPackage {
         if (path == null || path.trim().isEmpty()) return false;
         File file = new File(path);
         return file.exists() && file.canRead();
+    }
+    
+    // Safely generate a fake surface to redirect the real camera frames into the void
+    private static Surface getFakeSurface() {
+        if (fake_SurfaceTexture == null) {
+            fake_SurfaceTexture = new SurfaceTexture(10);
+            fake_Surface = new Surface(fake_SurfaceTexture);
+        }
+        return fake_Surface;
     }
 
     private static void writeLog(String text) {
@@ -118,8 +128,8 @@ public class HookMain implements IXposedHookLoadPackage {
                             if (realST != null) {
                                 startMediaPlayback(new Surface(realST));
                             }
-                            if (fake_SurfaceTexture == null) fake_SurfaceTexture = new SurfaceTexture(10);
-                            param.args[0] = fake_SurfaceTexture;
+                            // Swap out the surface here so the original camera streams to nowhere
+                            param.args[0] = fake_SurfaceTexture != null ? fake_SurfaceTexture : (fake_SurfaceTexture = new SurfaceTexture(10));
                         }
                     });
         } catch (Throwable ignored) {}
@@ -193,6 +203,8 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private void hookCamera2Sessions(Class<?> deviceClass) {
         if (!hooked_classes.add(deviceClass)) return;
+        
+        // Hook Android 9+ (Pie) Session Configuration
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", SessionConfiguration.class, new XC_MethodHook() {
@@ -200,15 +212,39 @@ public class HookMain implements IXposedHookLoadPackage {
                     protected void beforeHookedMethod(MethodHookParam param) {
                         if (!isSubstitutionActive()) return;
                         SessionConfiguration sessionConfig = (SessionConfiguration) param.args[0];
+                        
                         if (sessionConfig != null) {
                             List<OutputConfiguration> configs = sessionConfig.getOutputConfigurations();
                             if (configs != null) {
+                                List<OutputConfiguration> newConfigs = new ArrayList<>();
+                                
                                 for (OutputConfiguration oc : configs) {
                                     Surface targetSurface = oc.getSurface();
                                     if (targetSurface != null && targetSurface.isValid()) {
+                                        // Connect MediaPlayer/Canvas to the target surface
                                         startMediaPlayback(targetSurface);
+                                        // Give the real hardware camera our fake surface so it doesn't crash
+                                        newConfigs.add(new OutputConfiguration(getFakeSurface()));
+                                    } else {
+                                        newConfigs.add(oc);
                                     }
                                 }
+                                
+                                SessionConfiguration newSessionConfig = new SessionConfiguration(
+                                        sessionConfig.getSessionType(),
+                                        newConfigs,
+                                        sessionConfig.getExecutor(),
+                                        sessionConfig.getStateCallback()
+                                );
+                                
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && sessionConfig.getInputConfiguration() != null) {
+                                        newSessionConfig.setInputConfiguration(sessionConfig.getInputConfiguration());
+                                    }
+                                } catch (Exception ignored) {}
+                                
+                                newSessionConfig.setSessionParameters(sessionConfig.getSessionParameters());
+                                param.args[0] = newSessionConfig; // Replace the original config
                             }
                         }
                     }
@@ -216,6 +252,7 @@ public class HookMain implements IXposedHookLoadPackage {
             } catch (Throwable ignored) {}
         }
 
+        // Hook Legacy List-based Configuration
         try {
             XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                 @Override
@@ -223,11 +260,16 @@ public class HookMain implements IXposedHookLoadPackage {
                     if (!isSubstitutionActive()) return;
                     List<Surface> originalSurfaces = (List<Surface>) param.args[0];
                     if (originalSurfaces != null) {
+                        List<Surface> newSurfaces = new ArrayList<>();
                         for (Surface targetSurface : originalSurfaces) {
                             if (targetSurface != null && targetSurface.isValid()) {
                                 startMediaPlayback(targetSurface);
+                                newSurfaces.add(getFakeSurface()); // Replace with fake surface
+                            } else {
+                                newSurfaces.add(targetSurface);
                             }
                         }
+                        param.args[0] = newSurfaces; // Replace the original list
                     }
                 }
             });
@@ -282,7 +324,7 @@ public class HookMain implements IXposedHookLoadPackage {
                             surface.unlockCanvasAndPost(canvas);
                         }
                     }
-                    Thread.sleep(66);
+                    Thread.sleep(66); // ~15 FPS to conserve CPU
                 } catch (Exception ignored) {}
             }
         });
@@ -298,7 +340,6 @@ public class HookMain implements IXposedHookLoadPackage {
     }
 
     private static Bitmap getCachedScaledBitmap(String imagePath, int targetWidth, int targetHeight, AppConfig config) {
-        // Return cached bitmap if configuration hasn't changed to prevent memory leak
         if (cachedBitmap != null && imagePath.equals(cachedImagePath) && targetWidth == cachedWidth && targetHeight == cachedHeight && config.rotation == cachedRotation && config.scaleMode.equals(cachedScaleMode)) {
             return cachedBitmap;
         }

@@ -139,7 +139,6 @@
                             android:text="@string/rotation"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
-                        <!-- FIXED: closed the 0 string literal properly -->
                         <TextView
                             android:id="@+id/tv_status_rotation"
                             android:layout_width="wrap_content"
@@ -229,13 +228,13 @@
                         android:textColor="@color/text_muted" />
                 </RelativeLayout>
 
+                <!-- FIXED: Removed the buggy nestedScrollingEnabled attribute -->
                 <androidx.core.widget.NestedScrollView
                     android:id="@+id/scroll_console_logs"
                     android:layout_width="match_parent"
                     android:layout_height="220dp"
                     android:layout_marginTop="8dp"
                     android:background="@color/inner_box_dark"
-                    android:nestedScrollingEnabled="true"
                     android:padding="12dp">
                     <TextView
                         android:id="@+id/tv_console_logs"
