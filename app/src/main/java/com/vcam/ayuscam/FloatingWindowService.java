@@ -2,22 +2,19 @@ package com.vcam.ayuscam;
 
 import android.app.Service;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
+import android.view.ContextThemeWrapper;
 import android.view.Gravity;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-import android.widget.Button;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
+import android.widget.SeekBar;
 import android.widget.TextView;
-import android.widget.Toast;
 
 public class FloatingWindowService extends Service {
-
     private WindowManager windowManager;
     private View floatingView;
     private AppConfig config;
@@ -34,104 +31,40 @@ public class FloatingWindowService extends Service {
         config = AppConfig.load();
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 
-        // Building the view dynamically to avoid requiring extra XML layouts
-        LinearLayout rootLayout = new LinearLayout(this);
-        rootLayout.setOrientation(LinearLayout.VERTICAL);
-        rootLayout.setBackgroundColor(Color.parseColor("#CC0A0D14")); 
-        rootLayout.setPadding(24, 24, 24, 24);
+        // Wrap Context to apply Material Theme to inflated XML inside a Service
+        ContextThemeWrapper ctx = new ContextThemeWrapper(this, R.style.Theme_VCAM);
+        LayoutInflater inflater = LayoutInflater.from(ctx);
+        floatingView = inflater.inflate(R.layout.layout_floating_window, null);
 
-        // Header Draggable Icon
-        ImageView iconView = new ImageView(this);
-        iconView.setImageResource(android.R.drawable.ic_menu_camera); 
-        iconView.setBackgroundColor(Color.parseColor("#FF2A42"));
-        iconView.setPadding(24, 24, 24, 24);
-        LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(120, 120);
-        iconParams.gravity = Gravity.CENTER;
-        rootLayout.addView(iconView, iconParams);
+        View iconContainer = floatingView.findViewById(R.id.floating_icon_container);
+        View panelView = floatingView.findViewById(R.id.floating_panel);
+        View panelHeader = floatingView.findViewById(R.id.panel_header);
 
-        // Expandable Control Panel Layout
-        LinearLayout panel = new LinearLayout(this);
-        panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setVisibility(View.GONE);
-        panel.setPadding(0, 24, 0, 0);
-
-        // Zoom Settings (+/- limits bound natively to 0-200 bounds you requested)
-        panel.addView(createControlRow("Zoom", v -> {
-            config = AppConfig.load();
-            config.zoom = Math.max(0, config.zoom - 5);
-            config.save();
-        }, v -> {
-            config = AppConfig.load();
-            config.zoom = Math.min(200, config.zoom + 5);
-            config.save();
-        }));
-
-        // Rotation Settings
-        panel.addView(createControlRow("Rotate", v -> {
-            config = AppConfig.load();
-            config.rotation = (config.rotation - 90) % 360;
-            if(config.rotation < 0) config.rotation += 360;
-            config.save();
-        }, v -> {
-            config = AppConfig.load();
-            config.rotation = (config.rotation + 90) % 360;
-            config.save();
-        }));
-
-        // Volume Settings
-        panel.addView(createControlRow("Volume", v -> {
-            config = AppConfig.load();
-            config.volume = Math.max(0, config.volume - 5);
-            config.save();
-        }, v -> {
-            config = AppConfig.load();
-            config.volume = Math.min(100, config.volume + 5);
-            config.save();
-        }));
-
-        // Source Switcher
-        Button btnSource = new Button(this);
-        btnSource.setText("Change Source");
-        btnSource.setTextColor(Color.WHITE);
-        btnSource.setBackgroundColor(Color.parseColor("#181E2B"));
-        LinearLayout.LayoutParams sourceParams = new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        sourceParams.setMargins(0, 16, 0, 0);
-        btnSource.setLayoutParams(sourceParams);
-
-        btnSource.setOnClickListener(v -> {
-            config = AppConfig.load();
-            if (config.mediaPaths.size() > 0) {
-                config.selectedIndex = (config.selectedIndex + 1) % config.mediaPaths.size();
-                config.save();
-                Toast.makeText(this, "Changed Active Source", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "No media available", Toast.LENGTH_SHORT).show();
-            }
+        // Toggling Panel Visibility
+        iconContainer.setOnClickListener(v -> {
+            iconContainer.setVisibility(View.GONE);
+            panelView.setVisibility(View.VISIBLE);
         });
-        panel.addView(btnSource);
-        
-        Button btnClose = new Button(this);
-        btnClose.setText("Close Window");
-        btnClose.setTextColor(Color.WHITE);
-        btnClose.setBackgroundColor(Color.parseColor("#FF2A42"));
-        btnClose.setLayoutParams(sourceParams);
-        btnClose.setOnClickListener(v -> {
+
+        floatingView.findViewById(R.id.btn_minimize).setOnClickListener(v -> {
+            panelView.setVisibility(View.GONE);
+            iconContainer.setVisibility(View.VISIBLE);
+        });
+
+        floatingView.findViewById(R.id.btn_close).setOnClickListener(v -> {
             config = AppConfig.load();
             config.showHud = false;
             config.save();
             stopSelf();
         });
-        panel.addView(btnClose);
 
-        rootLayout.addView(panel);
-        floatingView = rootLayout;
+        // Wire up SeekBars
+        setupSeekBars();
 
-        // Toggles expansion of menu on click
-        iconView.setOnClickListener(v -> {
-            panel.setVisibility(panel.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
-        });
+        // Wire up D-Pad
+        setupDPad();
 
+        // Layout Params
         int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
@@ -147,8 +80,8 @@ public class FloatingWindowService extends Service {
         params.x = 20;
         params.y = 150;
 
-        // Allows dragging over the screen
-        iconView.setOnTouchListener(new View.OnTouchListener() {
+        // Make both the Icon and the Header draggable
+        View.OnTouchListener dragListener = new View.OnTouchListener() {
             private int initialX;
             private int initialY;
             private float initialTouchX;
@@ -172,45 +105,86 @@ public class FloatingWindowService extends Service {
                         return true;
                     case MotionEvent.ACTION_UP:
                         if (System.currentTimeMillis() - lastTouchDown < 200) {
-                            v.performClick(); 
+                            v.performClick();
                         }
                         return true;
                 }
                 return false;
             }
-        });
+        };
+
+        iconContainer.setOnTouchListener(dragListener);
+        panelHeader.setOnTouchListener(dragListener);
 
         windowManager.addView(floatingView, params);
     }
 
-    private LinearLayout createControlRow(String labelText, View.OnClickListener onMinus, View.OnClickListener onPlus) {
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, 8, 0, 8);
-        
-        TextView label = new TextView(this);
-        label.setText(labelText);
-        label.setTextColor(Color.WHITE);
-        label.setPadding(0, 0, 16, 0);
-        label.setWidth(140);
-        
-        Button btnMinus = new Button(this);
-        btnMinus.setText("-");
-        btnMinus.setTextColor(Color.WHITE);
-        btnMinus.setBackgroundColor(Color.parseColor("#181E2B"));
-        btnMinus.setOnClickListener(onMinus);
-        
-        Button btnPlus = new Button(this);
-        btnPlus.setText("+");
-        btnPlus.setTextColor(Color.WHITE);
-        btnPlus.setBackgroundColor(Color.parseColor("#181E2B"));
-        btnPlus.setOnClickListener(onPlus);
-        
-        row.addView(label);
-        row.addView(btnMinus);
-        row.addView(btnPlus);
-        return row;
+    private void setupSeekBars() {
+        SeekBar seekZoom = floatingView.findViewById(R.id.seek_zoom);
+        SeekBar seekRotate = floatingView.findViewById(R.id.seek_rotate);
+        SeekBar seekVolume = floatingView.findViewById(R.id.seek_volume);
+        TextView tvZoom = floatingView.findViewById(R.id.tv_zoom_val);
+        TextView tvRotate = floatingView.findViewById(R.id.tv_rotate_val);
+        TextView tvVolume = floatingView.findViewById(R.id.tv_volume_val);
+
+        seekZoom.setProgress(config.zoom);
+        tvZoom.setText(config.zoom + "%");
+        seekZoom.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                config.zoom = progress;
+                tvZoom.setText(progress + "%");
+                config.save();
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+
+        seekRotate.setProgress(config.rotation);
+        tvRotate.setText(config.rotation + "°");
+        seekRotate.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) {
+                    int snapped = Math.round(progress / 90f) * 90;
+                    seekBar.setProgress(snapped);
+                    config.rotation = snapped;
+                    tvRotate.setText(snapped + "°");
+                    config.save();
+                }
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+
+        seekVolume.setProgress(config.volume);
+        tvVolume.setText(config.volume + "%");
+        seekVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                config.volume = progress;
+                tvVolume.setText(progress + "%");
+                config.save();
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
+    }
+
+    private void setupDPad() {
+        floatingView.findViewById(R.id.btn_pan_up).setOnClickListener(v -> {
+            if(config.zoom != 0) { config.panY -= 10; config.save(); }
+        });
+        floatingView.findViewById(R.id.btn_pan_down).setOnClickListener(v -> {
+            if(config.zoom != 0) { config.panY += 10; config.save(); }
+        });
+        floatingView.findViewById(R.id.btn_pan_left).setOnClickListener(v -> {
+            if(config.zoom != 0) { config.panX -= 10; config.save(); }
+        });
+        floatingView.findViewById(R.id.btn_pan_right).setOnClickListener(v -> {
+            if(config.zoom != 0) { config.panX += 10; config.save(); }
+        });
+        floatingView.findViewById(R.id.btn_play_pause).setOnClickListener(v -> {
+            config.isPaused = !config.isPaused;
+            config.save();
+        });
     }
 
     @Override
