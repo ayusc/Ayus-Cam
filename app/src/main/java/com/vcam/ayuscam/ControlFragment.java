@@ -1,12 +1,17 @@
 package com.vcam.ayuscam;
 
+import android.content.Intent;
 import android.content.res.ColorStateList;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -28,12 +33,12 @@ public class ControlFragment extends Fragment {
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View root = inflater.inflate(R.layout.fragment_control, container, false);
-
         config = AppConfig.load();
         
         tvRotationVal = root.findViewById(R.id.tv_rotation_val);
         tvZoomVal = root.findViewById(R.id.tv_zoom_val);
         tvVolumeVal = root.findViewById(R.id.tv_volume_val);
+        
         sliderRotation = root.findViewById(R.id.slider_rotation);
         sliderZoom = root.findViewById(R.id.slider_zoom);
         sliderVolume = root.findViewById(R.id.slider_volume);
@@ -51,7 +56,7 @@ public class ControlFragment extends Fragment {
 
         setupListeners();
         updateUI();
-
+        
         return root;
     }
 
@@ -80,12 +85,23 @@ public class ControlFragment extends Fragment {
         btnFill.setOnClickListener(v -> setScaleMode("FILL"));
 
         btnHudToggle.setOnClickListener(v -> {
-            config.showHud = !config.showHud;
-            config.save();
-            updateUI();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(requireContext())) {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + requireContext().getPackageName()));
+                startActivity(intent);
+                Toast.makeText(requireContext(), "Please grant overlay permissions to use Floating Window", Toast.LENGTH_LONG).show();
+            } else {
+                config.showHud = !config.showHud;
+                config.save();
+                updateUI();
+                Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
+                if (config.showHud) {
+                    requireContext().startService(serviceIntent);
+                } else {
+                    requireContext().stopService(serviceIntent);
+                }
+            }
         });
 
-        // Pan commands ONLY register if Zoom is not 0
         btnPanUp.setOnClickListener(v -> { if(config.zoom != 0) { config.panY -= 10; config.save(); } });
         btnPanDown.setOnClickListener(v -> { if(config.zoom != 0) { config.panY += 10; config.save(); } });
         btnPanLeft.setOnClickListener(v -> { if(config.zoom != 0) { config.panX -= 10; config.save(); } });
@@ -105,19 +121,17 @@ public class ControlFragment extends Fragment {
     }
 
     private void updateUI() {
-        // Enforce the new bounds explicitly to prevent UI crashing on older save states
         sliderRotation.setValue(Math.min(config.rotation, 270));
         sliderZoom.setValue(Math.min(config.zoom, 200));
         sliderVolume.setValue(config.volume);
-
+        
         tvRotationVal.setText(config.rotation + "°");
         tvZoomVal.setText(config.zoom + "%");
         tvVolumeVal.setText(config.volume + "%");
-
+        
         btnPanCenter.setImageResource(config.isPaused ? 
-            android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause);
+             android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause);
 
-        // Aspect ratio red selection border highlighting
         int activeColor = ContextCompat.getColor(requireContext(), R.color.accent_red);
         int inactiveColor = ContextCompat.getColor(requireContext(), R.color.inner_box_dark);
         
@@ -125,6 +139,6 @@ public class ControlFragment extends Fragment {
         btnStretch.setBackgroundTintList(ColorStateList.valueOf("STRETCH".equals(config.scaleMode) ? activeColor : inactiveColor));
         btnFill.setBackgroundTintList(ColorStateList.valueOf("FILL".equals(config.scaleMode) ? activeColor : inactiveColor));
 
-        btnHudToggle.setText(config.showHud ? "Hide Floating HUD" : "Show Floating HUD");
+        btnHudToggle.setText(config.showHud ? "Hide Floating Window" : "Show Floating Window");
     }
 }

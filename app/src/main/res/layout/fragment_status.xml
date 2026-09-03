@@ -18,6 +18,7 @@
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:layout_marginBottom="16dp">
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -25,6 +26,7 @@
                 android:textColor="@color/accent_red"
                 android:textSize="22sp"
                 android:textStyle="bold" />
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -58,6 +60,7 @@
                 <RelativeLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -65,6 +68,7 @@
                         android:textColor="@color/text_main"
                         android:textSize="16sp"
                         android:textStyle="bold" />
+
                     <TextView
                         android:id="@+id/tv_daemon_state"
                         android:layout_width="wrap_content"
@@ -81,17 +85,20 @@
                     android:layout_marginTop="16dp"
                     android:orientation="horizontal"
                     android:weightSum="2">
+
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/state"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -100,17 +107,20 @@
                             android:textSize="14sp"
                             android:textStyle="bold" />
                     </LinearLayout>
+
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/socket"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:id="@+id/tv_socket_status"
                             android:layout_width="wrap_content"
@@ -128,17 +138,20 @@
                     android:layout_marginTop="16dp"
                     android:orientation="horizontal"
                     android:weightSum="3">
+
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/rotation"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:id="@+id/tv_status_rotation"
                             android:layout_width="wrap_content"
@@ -148,17 +161,20 @@
                             android:textSize="14sp"
                             android:textStyle="bold" />
                     </LinearLayout>
+
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/zoom"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:id="@+id/tv_status_zoom"
                             android:layout_width="wrap_content"
@@ -168,17 +184,20 @@
                             android:textSize="14sp"
                             android:textStyle="bold" />
                     </LinearLayout>
+
                     <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:orientation="vertical">
+
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="@string/scale_mode"
                             android:textColor="@color/text_muted"
                             android:textSize="12sp" />
+
                         <TextView
                             android:id="@+id/tv_status_scale"
                             android:layout_width="wrap_content"
@@ -189,7 +208,6 @@
                             android:textStyle="bold" />
                     </LinearLayout>
                 </LinearLayout>
-
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -211,6 +229,7 @@
                 <RelativeLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -218,6 +237,7 @@
                         android:textColor="@color/text_main"
                         android:textSize="16sp"
                         android:textStyle="bold" />
+
                     <Button
                         android:id="@+id/btn_clear_logs"
                         style="@style/Widget.MaterialComponents.Button.TextButton"
@@ -228,14 +248,18 @@
                         android:textColor="@color/text_muted" />
                 </RelativeLayout>
 
-                <!-- FIXED: Removed the buggy nestedScrollingEnabled attribute -->
+                <!-- Added scrollbars styling -->
                 <androidx.core.widget.NestedScrollView
                     android:id="@+id/scroll_console_logs"
                     android:layout_width="match_parent"
                     android:layout_height="220dp"
                     android:layout_marginTop="8dp"
                     android:background="@color/inner_box_dark"
-                    android:padding="12dp">
+                    android:padding="12dp"
+                    android:scrollbars="vertical"
+                    android:fadeScrollbars="true"
+                    android:scrollbarFadeDuration="1000">
+
                     <TextView
                         android:id="@+id/tv_console_logs"
                         android:layout_width="match_parent"
@@ -244,9 +268,7 @@
                         android:textColor="@color/accent_red"
                         android:textSize="12sp" />
                 </androidx.core.widget.NestedScrollView>
-
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
-
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>

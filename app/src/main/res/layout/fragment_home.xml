@@ -47,7 +47,6 @@
                     android:textStyle="bold" />
             </LinearLayout>
 
-            <!-- Added subtitles -->
             <TextView
                 android:id="@+id/tv_subtitle_undetected"
                 android:layout_width="wrap_content"
@@ -241,24 +240,33 @@
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
-                <LinearLayout
-                    android:id="@+id/ll_media_list"
+                <!-- Added ScrollView with fixed height to allow max 3 items to show -->
+                <ScrollView
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="180dp"
                     android:layout_marginTop="12dp"
                     android:background="@color/inner_box_dark"
-                    android:orientation="vertical"
+                    android:scrollbars="vertical"
+                    android:fadeScrollbars="true"
+                    android:scrollbarFadeDuration="1000"
                     android:padding="4dp">
-
-                    <TextView
-                        android:id="@+id/tv_empty_media"
+                    
+                    <LinearLayout
+                        android:id="@+id/ll_media_list"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:padding="16dp"
-                        android:text="No media added yet"
-                        android:textColor="@color/text_muted" />
-                </LinearLayout>
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/tv_empty_media"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:padding="16dp"
+                            android:text="No media added yet"
+                            android:textColor="@color/text_muted" />
+                    </LinearLayout>
+                </ScrollView>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -267,7 +275,6 @@
                     android:orientation="horizontal"
                     android:weightSum="2">
 
-                    <!-- Changed accent to red -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_pick_photo"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -281,7 +288,6 @@
                         app:cornerRadius="8dp"
                         app:strokeColor="@color/accent_red" />
 
-                    <!-- Changed accent to red -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_pick_video"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton"

@@ -55,7 +55,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private final ActivityResultLauncher<String[]> pickPhotoLauncher = registerForActivityResult(
             new ActivityResultContracts.OpenDocument(), uri -> handleMediaResult(uri, "IMAGE"));
-
+            
     private final ActivityResultLauncher<String[]> pickVideoLauncher = registerForActivityResult(
             new ActivityResultContracts.OpenDocument(), uri -> handleMediaResult(uri, "VIDEO"));
 
@@ -63,7 +63,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View root = inflater.inflate(R.layout.fragment_home, container, false);
-
         config = AppConfig.load();
         
         previewTextureView = root.findViewById(R.id.preview_texture_view);
@@ -119,7 +118,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         return root;
     }
 
-    // Forces a refresh when coming back from other fragments
     @Override
     public void onResume() {
         super.onResume();
@@ -129,10 +127,16 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         }
     }
 
+    // FIX: Releases hardware locks when switching tabs
+    @Override
+    public void onPause() {
+        super.onPause();
+        stopAllPreviews();
+    }
+
     private void handleMediaResult(Uri uri, String type) {
         if (uri == null) return;
         String displayName = "media_" + System.currentTimeMillis();
-
         try (Cursor cursor = requireContext().getContentResolver().query(uri, null, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
@@ -153,7 +157,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
         try (InputStream in = requireContext().getContentResolver().openInputStream(uri);
              OutputStream out = new FileOutputStream(localFile)) {
-
             byte[] buf = new byte[8192];
             int len;
             while ((len = in.read(buf)) > 0) {
@@ -198,7 +201,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             tvBadgePreviewState.setTextColor(0xFF8A909E);
             llPreviewOverlay.setVisibility(View.VISIBLE);
         }
-
         renderMediaList();
     }
 
@@ -233,6 +235,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             boolean isImage = "IMAGE".equals(config.mediaTypes.get(i));
             icon.setImageResource(isImage ? android.R.drawable.ic_menu_gallery : android.R.drawable.ic_media_play);
             icon.setColorFilter(config.selectedIndex == index ? 0xFF00E676 : 0xFF8A909E);
+            
             LinearLayout.LayoutParams lpIcon = new LinearLayout.LayoutParams(36, 36);
             lpIcon.setMarginEnd(16);
             leftContainer.addView(icon, lpIcon);
@@ -267,6 +270,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             btnDelete.setOnClickListener(v -> {
                 File f = new File(config.mediaPaths.get(index));
                 if (f.exists()) f.delete();
+
                 config.mediaPaths.remove(index);
                 config.mediaNames.remove(index);
                 config.mediaTypes.remove(index);
@@ -276,12 +280,10 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
                 } else if (config.selectedIndex > index) {
                     config.selectedIndex--;
                 }
-
                 config.save();
                 updateUI();
                 restartPreviewMode();
             });
-
             llMediaList.addView(row);
         }
     }
@@ -307,7 +309,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         if ("IMAGE".equals(config.getActiveMediaType())) {
             previewTextureView.setVisibility(View.GONE);
             previewImageView.setVisibility(View.VISIBLE);
-
+            
             Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
             if (bitmap != null && config.rotation != 0) {
                 Matrix m = new Matrix();
@@ -315,7 +317,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
                 bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), m, true);
             }
             previewImageView.setImageBitmap(bitmap);
-
         } else {
             previewImageView.setVisibility(View.GONE);
             previewTextureView.setVisibility(View.VISIBLE);
@@ -338,6 +339,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             mCamera = Camera.open(currentCameraId);
             Camera.CameraInfo info = new Camera.CameraInfo();
             Camera.getCameraInfo(currentCameraId, info);
+            
             int rotation = requireActivity().getWindowManager().getDefaultDisplay().getRotation();
             int degrees = 0;
             switch (rotation) {
@@ -368,8 +370,15 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             mediaPlayer = new MediaPlayer();
             mediaPlayer.setSurface(new Surface(surfaceTexture));
             mediaPlayer.setDataSource(config.getActiveMediaPath());
-            mediaPlayer.setLooping(true);
+            mediaPlayer.setLooping(true); // Loops the video natively
             mediaPlayer.setVolume(config.volume / 100f, config.volume / 100f);
+            
+            // Re-enforces explicit looping
+            mediaPlayer.setOnCompletionListener(mp -> {
+                mp.seekTo(0);
+                mp.start();
+            });
+
             mediaPlayer.prepareAsync();
             mediaPlayer.setOnPreparedListener(MediaPlayer::start);
         } catch (Exception ignored) {}
@@ -384,6 +393,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } catch (Exception ignored) {}
             mediaPlayer = null;
         }
+
         if (mCamera != null) {
             try {
                 mCamera.stopPreview();
@@ -391,7 +401,10 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } catch (Exception ignored) {}
             mCamera = null;
         }
-        previewImageView.setVisibility(View.GONE);
+
+        if (previewImageView != null) {
+            previewImageView.setVisibility(View.GONE);
+        }
     }
 
     @Override
