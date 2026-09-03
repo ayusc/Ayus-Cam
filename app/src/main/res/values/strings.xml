@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">AYUSCAM</string>
+    <string name="app_name">Ayus Cam</string>
     <string name="app_badge">PRO</string>
     <string name="nav_home">Home</string>
     <string name="nav_control">Control</string>

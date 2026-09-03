@@ -28,6 +28,7 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
 
 import com.google.android.material.button.MaterialButton;
@@ -46,6 +47,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private MaterialButton btnTogglePreview, btnToggleVirtualCam, btnPickPhoto, btnPickVideo;
     private ImageButton btnRotateCamera;
     private LinearLayout llMediaList, llPreviewOverlay;
+    private NestedScrollView scrollMediaList;
 
     private MediaPlayer mediaPlayer;
     private Camera mCamera;
@@ -79,6 +81,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         btnRotateCamera = root.findViewById(R.id.btn_rotate_camera);
         llMediaList = root.findViewById(R.id.ll_media_list);
         llPreviewOverlay = root.findViewById(R.id.ll_preview_status_overlay);
+        scrollMediaList = root.findViewById(R.id.scroll_media_list);
 
         previewTextureView.setSurfaceTextureListener(this);
 
@@ -115,6 +118,11 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         });
 
         updateUI();
+        
+        // FIX: Forces the preview to evaluate immediately upon returning to the fragment 
+        // to prevent the black screen when views are defaulted to GONE
+        restartPreviewMode();
+        
         return root;
     }
 
@@ -127,7 +135,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         }
     }
 
-    // FIX: Releases hardware locks when switching tabs
     @Override
     public void onPause() {
         super.onPause();
@@ -206,6 +213,16 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private void renderMediaList() {
         llMediaList.removeAllViews();
+        
+        // FIX: Dynamic list height based on item count to avoid extra empty space
+        ViewGroup.LayoutParams lp = scrollMediaList.getLayoutParams();
+        if (config.mediaPaths.size() > 3) {
+            lp.height = (int) (180 * getResources().getDisplayMetrics().density); // Fix height if list is long
+        } else {
+            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT; // Hug items tightly if list is short
+        }
+        scrollMediaList.setLayoutParams(lp);
+
         if (config.mediaPaths.isEmpty()) {
             llMediaList.addView(tvEmptyMedia);
             return;
@@ -370,10 +387,11 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             mediaPlayer = new MediaPlayer();
             mediaPlayer.setSurface(new Surface(surfaceTexture));
             mediaPlayer.setDataSource(config.getActiveMediaPath());
-            mediaPlayer.setLooping(true); // Loops the video natively
+            mediaPlayer.setLooping(true); // Native android flag
             mediaPlayer.setVolume(config.volume / 100f, config.volume / 100f);
             
-            // Re-enforces explicit looping
+            // FIX: Some android devices ignore setLooping(true). 
+            // Setting onCompletionListener forcefully rewinds and loops the video preview
             mediaPlayer.setOnCompletionListener(mp -> {
                 mp.seekTo(0);
                 mp.start();

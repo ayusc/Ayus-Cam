@@ -248,7 +248,7 @@
                         android:textColor="@color/text_muted" />
                 </RelativeLayout>
 
-                <!-- Added scrollbars styling -->
+                <!-- Scrollbars specifically bound to this view -->
                 <androidx.core.widget.NestedScrollView
                     android:id="@+id/scroll_console_logs"
                     android:layout_width="match_parent"
@@ -258,7 +258,8 @@
                     android:padding="12dp"
                     android:scrollbars="vertical"
                     android:fadeScrollbars="true"
-                    android:scrollbarFadeDuration="1000">
+                    android:scrollbarFadeDuration="1000"
+                    android:scrollbarThumbVertical="#8A909E">
 
                     <TextView
                         android:id="@+id/tv_console_logs"
