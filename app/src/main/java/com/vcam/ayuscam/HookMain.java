@@ -28,6 +28,7 @@ import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
@@ -45,6 +46,9 @@ public class HookMain implements IXposedHookLoadPackage {
     private static Thread imageRenderThread;
     private static volatile boolean renderImage = false;
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    
+    // FIXED: Use a WeakHashMap to track ImageReader surfaces without causing memory leaks
+    private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
 
     // Bitmap Caching Variables
     private static Bitmap cachedBitmap = null;
@@ -116,6 +120,19 @@ public class HookMain implements IXposedHookLoadPackage {
                         }
                     });
         } catch (Throwable ignored) {}
+        
+        // FIXED: Intercept ImageReader to track which surfaces require YUV formatting
+        try {
+            XposedHelpers.findAndHookMethod(android.media.ImageReader.class, "getSurface", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    Surface surface = (Surface) param.getResult();
+                    if (surface != null) {
+                        imageReaderSurfaces.add(surface);
+                    }
+                }
+            });
+        } catch (Throwable ignored) {}
 
         // Camera 1 Hooks
         try {
@@ -128,7 +145,6 @@ public class HookMain implements IXposedHookLoadPackage {
                             if (realST != null) {
                                 startMediaPlayback(new Surface(realST));
                             }
-                            // Swap out the surface here so the original camera streams to nowhere
                             param.args[0] = fake_SurfaceTexture != null ? fake_SurfaceTexture : (fake_SurfaceTexture = new SurfaceTexture(10));
                         }
                     });
@@ -221,10 +237,13 @@ public class HookMain implements IXposedHookLoadPackage {
                                 for (OutputConfiguration oc : configs) {
                                     Surface targetSurface = oc.getSurface();
                                     if (targetSurface != null && targetSurface.isValid()) {
-                                        // Connect MediaPlayer/Canvas to the target surface
-                                        startMediaPlayback(targetSurface);
-                                        // Give the real hardware camera our fake surface so it doesn't crash
-                                        newConfigs.add(new OutputConfiguration(getFakeSurface()));
+                                        // FIXED: Bypass ImageReader surfaces to prevent UnsupportedOperationException crash
+                                        if (imageReaderSurfaces.contains(targetSurface)) {
+                                            newConfigs.add(oc);
+                                        } else {
+                                            startMediaPlayback(targetSurface);
+                                            newConfigs.add(new OutputConfiguration(getFakeSurface()));
+                                        }
                                     } else {
                                         newConfigs.add(oc);
                                     }
@@ -263,8 +282,13 @@ public class HookMain implements IXposedHookLoadPackage {
                         List<Surface> newSurfaces = new ArrayList<>();
                         for (Surface targetSurface : originalSurfaces) {
                             if (targetSurface != null && targetSurface.isValid()) {
-                                startMediaPlayback(targetSurface);
-                                newSurfaces.add(getFakeSurface()); // Replace with fake surface
+                                // FIXED: Bypass ImageReader surfaces to prevent UnsupportedOperationException crash
+                                if (imageReaderSurfaces.contains(targetSurface)) {
+                                    newSurfaces.add(targetSurface);
+                                } else {
+                                    startMediaPlayback(targetSurface);
+                                    newSurfaces.add(getFakeSurface()); 
+                                }
                             } else {
                                 newSurfaces.add(targetSurface);
                             }
