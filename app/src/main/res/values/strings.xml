@@ -19,8 +19,8 @@
     <string name="no_media_added">No media added yet</string>
 
     <!-- Control Tab -->
-    <string name="control_center">Control Center</string>
-    <string name="control_center_desc">You can control the livecam output from here</string>
+    <string name="control_center">Control Panel</string>
+    <string name="control_center_desc">You can control the live camera output from here</string>
     <string name="rotation">Rotation</string>
     <string name="zoom">Zoom</string>
     <string name="volume">Volume</string>
