@@ -11,6 +11,7 @@ import android.graphics.SurfaceTexture;
 import android.hardware.Camera;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
+import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.media.MediaPlayer;
@@ -27,6 +28,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -39,7 +41,6 @@ import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 public class HookMain implements IXposedHookLoadPackage {
-    private static Surface fake_Surface;
     private static SurfaceTexture fake_SurfaceTexture;
     private static MediaPlayer mediaPlayer;
     private static Context appContext;
@@ -47,8 +48,11 @@ public class HookMain implements IXposedHookLoadPackage {
     private static volatile boolean renderImage = false;
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
     
-    // FIXED: Use a WeakHashMap to track ImageReader surfaces without causing memory leaks
+    // Track ImageReader surfaces to prevent format mismatch crashes
     private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
+    
+    // FIXED: 1:1 Mapping to ensure CaptureRequests and Sessions share the exact same fake surface
+    private static final Map<Surface, Surface> fakeSurfaceMap = Collections.synchronizedMap(new WeakHashMap<>());
 
     // Bitmap Caching Variables
     private static Bitmap cachedBitmap = null;
@@ -71,13 +75,14 @@ public class HookMain implements IXposedHookLoadPackage {
         return file.exists() && file.canRead();
     }
     
-    // Safely generate a fake surface to redirect the real camera frames into the void
-    private static Surface getFakeSurface() {
-        if (fake_SurfaceTexture == null) {
-            fake_SurfaceTexture = new SurfaceTexture(10);
-            fake_Surface = new Surface(fake_SurfaceTexture);
+    // Generates a unique fake surface mapped to the original to trick the HAL
+    private static Surface getFakeSurface(Surface originalSurface) {
+        if (originalSurface == null) return null;
+        if (!fakeSurfaceMap.containsKey(originalSurface)) {
+            SurfaceTexture st = new SurfaceTexture(10 + fakeSurfaceMap.size());
+            fakeSurfaceMap.put(originalSurface, new Surface(st));
         }
-        return fake_Surface;
+        return fakeSurfaceMap.get(originalSurface);
     }
 
     private static void writeLog(String text) {
@@ -121,7 +126,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     });
         } catch (Throwable ignored) {}
         
-        // FIXED: Intercept ImageReader to track which surfaces require YUV formatting
+        // Track ImageReader surfaces
         try {
             XposedHelpers.findAndHookMethod(android.media.ImageReader.class, "getSurface", new XC_MethodHook() {
                 @Override
@@ -129,6 +134,31 @@ public class HookMain implements IXposedHookLoadPackage {
                     Surface surface = (Surface) param.getResult();
                     if (surface != null) {
                         imageReaderSurfaces.add(surface);
+                    }
+                }
+            });
+        } catch (Throwable ignored) {}
+
+        // FIXED: Intercept CaptureRequest to align its surfaces with the SessionConfiguration
+        try {
+            XposedHelpers.findAndHookMethod(CaptureRequest.Builder.class, "addTarget", Surface.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isSubstitutionActive()) return;
+                    Surface surface = (Surface) param.args[0];
+                    // If we previously swapped this surface in the session, swap it here too!
+                    if (surface != null && fakeSurfaceMap.containsKey(surface)) {
+                        param.args[0] = fakeSurfaceMap.get(surface);
+                    }
+                }
+            });
+            XposedHelpers.findAndHookMethod(CaptureRequest.Builder.class, "removeTarget", Surface.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isSubstitutionActive()) return;
+                    Surface surface = (Surface) param.args[0];
+                    if (surface != null && fakeSurfaceMap.containsKey(surface)) {
+                        param.args[0] = fakeSurfaceMap.get(surface);
                     }
                 }
             });
@@ -237,12 +267,12 @@ public class HookMain implements IXposedHookLoadPackage {
                                 for (OutputConfiguration oc : configs) {
                                     Surface targetSurface = oc.getSurface();
                                     if (targetSurface != null && targetSurface.isValid()) {
-                                        // FIXED: Bypass ImageReader surfaces to prevent UnsupportedOperationException crash
                                         if (imageReaderSurfaces.contains(targetSurface)) {
                                             newConfigs.add(oc);
                                         } else {
                                             startMediaPlayback(targetSurface);
-                                            newConfigs.add(new OutputConfiguration(getFakeSurface()));
+                                            // Map original surface to a fake one
+                                            newConfigs.add(new OutputConfiguration(getFakeSurface(targetSurface)));
                                         }
                                     } else {
                                         newConfigs.add(oc);
@@ -263,7 +293,7 @@ public class HookMain implements IXposedHookLoadPackage {
                                 } catch (Exception ignored) {}
                                 
                                 newSessionConfig.setSessionParameters(sessionConfig.getSessionParameters());
-                                param.args[0] = newSessionConfig; // Replace the original config
+                                param.args[0] = newSessionConfig;
                             }
                         }
                     }
@@ -282,18 +312,18 @@ public class HookMain implements IXposedHookLoadPackage {
                         List<Surface> newSurfaces = new ArrayList<>();
                         for (Surface targetSurface : originalSurfaces) {
                             if (targetSurface != null && targetSurface.isValid()) {
-                                // FIXED: Bypass ImageReader surfaces to prevent UnsupportedOperationException crash
                                 if (imageReaderSurfaces.contains(targetSurface)) {
                                     newSurfaces.add(targetSurface);
                                 } else {
                                     startMediaPlayback(targetSurface);
-                                    newSurfaces.add(getFakeSurface()); 
+                                    // Map original surface to a fake one
+                                    newSurfaces.add(getFakeSurface(targetSurface)); 
                                 }
                             } else {
                                 newSurfaces.add(targetSurface);
                             }
                         }
-                        param.args[0] = newSurfaces; // Replace the original list
+                        param.args[0] = newSurfaces;
                     }
                 }
             });
@@ -348,7 +378,7 @@ public class HookMain implements IXposedHookLoadPackage {
                             surface.unlockCanvasAndPost(canvas);
                         }
                     }
-                    Thread.sleep(66); // ~15 FPS to conserve CPU
+                    Thread.sleep(66);
                 } catch (Exception ignored) {}
             }
         });
