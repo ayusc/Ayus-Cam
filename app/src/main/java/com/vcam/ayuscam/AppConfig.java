@@ -1,8 +1,10 @@
 package com.vcam.ayuscam;
 
 import android.os.Environment;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -20,6 +22,7 @@ public class AppConfig {
     public List<String> mediaTypes = new ArrayList<>();
     public List<String> mediaNames = new ArrayList<>();
     public int selectedIndex = 0;
+    
     public int rotation = 0;
     public int zoom = 100;
     public int volume = 0;
@@ -28,6 +31,7 @@ public class AppConfig {
     public String scaleMode = "FILL";
     public boolean showHud = false;
     public boolean disableToast = false;
+    public boolean isPaused = false; // Added Play/Pause State
 
     public String getActiveMediaType() {
         if (selectedIndex >= 0 && selectedIndex < mediaTypes.size()) {
@@ -64,6 +68,7 @@ public class AppConfig {
                 sb.append(line);
             }
             JSONObject json = new JSONObject(sb.toString());
+
             config.enabled = json.optBoolean("enabled", true);
             config.selectedIndex = json.optInt("selectedIndex", 0);
             config.rotation = json.optInt("rotation", 0);
@@ -74,6 +79,7 @@ public class AppConfig {
             config.scaleMode = json.optString("scaleMode", "FILL");
             config.showHud = json.optBoolean("showHud", false);
             config.disableToast = json.optBoolean("disableToast", false);
+            config.isPaused = json.optBoolean("isPaused", false);
 
             JSONArray pathsArr = json.optJSONArray("mediaPaths");
             JSONArray typesArr = json.optJSONArray("mediaTypes");
@@ -113,9 +119,12 @@ public class AppConfig {
             json.put("scaleMode", scaleMode);
             json.put("showHud", showHud);
             json.put("disableToast", disableToast);
+            json.put("isPaused", isPaused);
+            
             json.put("mediaPaths", new JSONArray(mediaPaths));
             json.put("mediaTypes", new JSONArray(mediaTypes));
             json.put("mediaNames", new JSONArray(mediaNames));
+            
             writer.write(json.toString(4));
         } catch (Exception e) {
             e.printStackTrace();

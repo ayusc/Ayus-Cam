@@ -19,6 +19,7 @@
             android:gravity="center_vertical"
             android:orientation="horizontal"
             android:layout_marginBottom="16dp">
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -26,6 +27,7 @@
                 android:textColor="@color/accent_red"
                 android:textSize="22sp"
                 android:textStyle="bold" />
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -67,7 +69,6 @@
                         android:text="@string/rotation"
                         android:textColor="@color/text_main"
                         android:textSize="14sp" />
-                    <!-- FIXED: closed the 0 string literal properly -->
                     <TextView
                         android:id="@+id/tv_rotation_val"
                         android:layout_width="wrap_content"
@@ -78,12 +79,13 @@
                         android:textStyle="bold" />
                 </RelativeLayout>
 
+                <!-- Fixed rotation range to 0 - 270 -->
                 <com.google.android.material.slider.Slider
                     android:id="@+id/slider_rotation"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:valueFrom="0"
-                    android:valueTo="360"
+                    android:valueTo="270"
                     android:stepSize="90"
                     app:thumbColor="@color/accent_red"
                     app:trackColorActive="@color/accent_red"
@@ -110,13 +112,14 @@
                         android:textStyle="bold" />
                 </RelativeLayout>
 
+                <!-- Fixed zoom range to 0 - 200 -->
                 <com.google.android.material.slider.Slider
                     android:id="@+id/slider_zoom"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:valueFrom="100"
-                    android:valueTo="500"
-                    android:stepSize="10"
+                    android:valueFrom="0"
+                    android:valueTo="200"
+                    android:stepSize="5"
                     app:thumbColor="@color/accent_red"
                     app:trackColorActive="@color/accent_red"
                     app:trackColorInactive="@color/card_stroke" />
@@ -152,7 +155,6 @@
                     app:thumbColor="@color/accent_red"
                     app:trackColorActive="@color/accent_red"
                     app:trackColorInactive="@color/card_stroke" />
-
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -227,13 +229,14 @@
                         android:src="@android:drawable/ic_media_next"
                         app:tint="@color/accent_red" />
 
+                    <!-- Updated to Play/Pause icon -->
                     <ImageButton
                         android:id="@+id/btn_pan_center"
                         android:layout_width="48dp"
                         android:layout_height="48dp"
                         android:layout_centerInParent="true"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:src="@android:drawable/ic_menu_rotate"
+                        android:src="@android:drawable/ic_media_play"
                         app:tint="@color/text_main" />
                 </RelativeLayout>
             </LinearLayout>
@@ -305,34 +308,38 @@
                     android:layout_marginTop="12dp"
                     android:orientation="horizontal"
                     android:weightSum="3">
+
+                    <!-- Reordered: Fill -> Stretch -> Fit -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_scale_fill"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="4dp"
+                        android:layout_weight="1"
+                        android:text="@string/fill"
+                        android:textColor="@color/text_main"
+                        app:backgroundTint="@color/inner_box_dark"
+                        app:cornerRadius="8dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_scale_stretch"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="4dp"
+                        android:layout_weight="1"
+                        android:text="@string/stretch"
+                        android:textColor="@color/text_main"
+                        app:backgroundTint="@color/inner_box_dark"
+                        app:cornerRadius="8dp" />
+                    
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_scale_fit"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
                         android:text="@string/fit"
                         android:textColor="@color/text_main"
                         app:backgroundTint="@color/inner_box_dark"
-                        app:cornerRadius="8dp" />
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_scale_stretch"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
-                        android:text="@string/stretch"
-                        android:textColor="@color/text_main"
-                        app:backgroundTint="@color/inner_box_dark"
-                        app:cornerRadius="8dp" />
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_scale_fill"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/fill"
-                        android:textColor="@color/text_main"
-                        app:backgroundTint="@color/accent_red"
                         app:cornerRadius="8dp" />
                 </LinearLayout>
             </LinearLayout>
