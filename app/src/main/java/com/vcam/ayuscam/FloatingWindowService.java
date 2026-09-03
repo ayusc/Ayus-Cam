@@ -1,7 +1,11 @@
 package com.vcam.ayuscam;
 
 import android.app.Service;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.res.ColorStateList;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
@@ -11,14 +15,26 @@ import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.ImageView;
 import android.widget.SeekBar;
 import android.widget.TextView;
+import androidx.core.content.ContextCompat;
+import com.google.android.material.button.MaterialButton;
 
 public class FloatingWindowService extends Service {
     private WindowManager windowManager;
     private View floatingView;
     private AppConfig config;
     private WindowManager.LayoutParams params;
+
+    // Receiver to update UI if changed from main app
+    private final BroadcastReceiver syncReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            config = AppConfig.load();
+            updateFloatingUI();
+        }
+    };
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -31,7 +47,6 @@ public class FloatingWindowService extends Service {
         config = AppConfig.load();
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
 
-        // Wrap Context to apply Material Theme to inflated XML inside a Service
         ContextThemeWrapper ctx = new ContextThemeWrapper(this, R.style.Theme_VCAM);
         LayoutInflater inflater = LayoutInflater.from(ctx);
         floatingView = inflater.inflate(R.layout.layout_floating_window, null);
@@ -40,7 +55,6 @@ public class FloatingWindowService extends Service {
         View panelView = floatingView.findViewById(R.id.floating_panel);
         View panelHeader = floatingView.findViewById(R.id.panel_header);
 
-        // Toggling Panel Visibility
         iconContainer.setOnClickListener(v -> {
             iconContainer.setVisibility(View.GONE);
             panelView.setVisibility(View.VISIBLE);
@@ -55,16 +69,14 @@ public class FloatingWindowService extends Service {
             config = AppConfig.load();
             config.showHud = false;
             config.save();
+            sendBroadcast(new Intent("com.vcam.ayuscam.UPDATE_UI"));
             stopSelf();
         });
 
-        // Wire up SeekBars
         setupSeekBars();
+        setupButtons();
+        updateFloatingUI();
 
-        // Wire up D-Pad
-        setupDPad();
-
-        // Layout Params
         int layoutFlag = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                 : WindowManager.LayoutParams.TYPE_PHONE;
@@ -80,12 +92,9 @@ public class FloatingWindowService extends Service {
         params.x = 20;
         params.y = 150;
 
-        // Make both the Icon and the Header draggable
         View.OnTouchListener dragListener = new View.OnTouchListener() {
-            private int initialX;
-            private int initialY;
-            private float initialTouchX;
-            private float initialTouchY;
+            private int initialX, initialY;
+            private float initialTouchX, initialTouchY;
             private long lastTouchDown;
 
             @Override
@@ -117,79 +126,115 @@ public class FloatingWindowService extends Service {
         panelHeader.setOnTouchListener(dragListener);
 
         windowManager.addView(floatingView, params);
+
+        // Register Sync Broadcast
+        IntentFilter filter = new IntentFilter("com.vcam.ayuscam.UPDATE_UI");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(syncReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(syncReceiver, filter);
+        }
+    }
+
+    private void saveAndNotify() {
+        config.save();
+        updateFloatingUI();
+        sendBroadcast(new Intent("com.vcam.ayuscam.UPDATE_UI"));
     }
 
     private void setupSeekBars() {
         SeekBar seekZoom = floatingView.findViewById(R.id.seek_zoom);
         SeekBar seekRotate = floatingView.findViewById(R.id.seek_rotate);
         SeekBar seekVolume = floatingView.findViewById(R.id.seek_volume);
-        TextView tvZoom = floatingView.findViewById(R.id.tv_zoom_val);
-        TextView tvRotate = floatingView.findViewById(R.id.tv_rotate_val);
-        TextView tvVolume = floatingView.findViewById(R.id.tv_volume_val);
-
-        seekZoom.setProgress(config.zoom);
-        tvZoom.setText(config.zoom + "%");
+        
         seekZoom.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                config.zoom = progress;
-                tvZoom.setText(progress + "%");
-                config.save();
+                if (fromUser) { config.zoom = progress; saveAndNotify(); }
             }
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
 
-        seekRotate.setProgress(config.rotation);
-        tvRotate.setText(config.rotation + "°");
         seekRotate.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 if (fromUser) {
                     int snapped = Math.round(progress / 90f) * 90;
                     seekBar.setProgress(snapped);
                     config.rotation = snapped;
-                    tvRotate.setText(snapped + "°");
-                    config.save();
+                    saveAndNotify();
                 }
             }
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
 
-        seekVolume.setProgress(config.volume);
-        tvVolume.setText(config.volume + "%");
         seekVolume.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                config.volume = progress;
-                tvVolume.setText(progress + "%");
-                config.save();
+                if (fromUser) { config.volume = progress; saveAndNotify(); }
             }
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
     }
 
-    private void setupDPad() {
+    private void setupButtons() {
+        floatingView.findViewById(R.id.btn_scale_fit).setOnClickListener(v -> {
+            config.scaleMode = "FIT"; saveAndNotify();
+        });
+        floatingView.findViewById(R.id.btn_scale_stretch).setOnClickListener(v -> {
+            config.scaleMode = "STRETCH"; saveAndNotify();
+        });
+        floatingView.findViewById(R.id.btn_scale_fill).setOnClickListener(v -> {
+            config.scaleMode = "FILL"; saveAndNotify();
+        });
+
         floatingView.findViewById(R.id.btn_pan_up).setOnClickListener(v -> {
-            if(config.zoom != 0) { config.panY -= 10; config.save(); }
+            if(config.zoom != 0) { config.panY -= 10; saveAndNotify(); }
         });
         floatingView.findViewById(R.id.btn_pan_down).setOnClickListener(v -> {
-            if(config.zoom != 0) { config.panY += 10; config.save(); }
+            if(config.zoom != 0) { config.panY += 10; saveAndNotify(); }
         });
         floatingView.findViewById(R.id.btn_pan_left).setOnClickListener(v -> {
-            if(config.zoom != 0) { config.panX -= 10; config.save(); }
+            if(config.zoom != 0) { config.panX -= 10; saveAndNotify(); }
         });
         floatingView.findViewById(R.id.btn_pan_right).setOnClickListener(v -> {
-            if(config.zoom != 0) { config.panX += 10; config.save(); }
+            if(config.zoom != 0) { config.panX += 10; saveAndNotify(); }
         });
         floatingView.findViewById(R.id.btn_play_pause).setOnClickListener(v -> {
-            config.isPaused = !config.isPaused;
-            config.save();
+            config.isPaused = !config.isPaused; saveAndNotify();
         });
+    }
+
+    private void updateFloatingUI() {
+        ((SeekBar) floatingView.findViewById(R.id.seek_zoom)).setProgress(config.zoom);
+        ((TextView) floatingView.findViewById(R.id.tv_zoom_val)).setText(config.zoom + "%");
+
+        ((SeekBar) floatingView.findViewById(R.id.seek_rotate)).setProgress(config.rotation);
+        ((TextView) floatingView.findViewById(R.id.tv_rotate_val)).setText(config.rotation + "°");
+
+        ((SeekBar) floatingView.findViewById(R.id.seek_volume)).setProgress(config.volume);
+        ((TextView) floatingView.findViewById(R.id.tv_volume_val)).setText(config.volume + "%");
+
+        ImageView playPauseIcon = floatingView.findViewById(R.id.icon_play_pause);
+        playPauseIcon.setImageResource(config.isPaused ? 
+            android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause);
+
+        int activeColor = ContextCompat.getColor(this, R.color.accent_red);
+        int inactiveColor = ContextCompat.getColor(this, R.color.inner_box_dark);
+
+        MaterialButton btnFit = floatingView.findViewById(R.id.btn_scale_fit);
+        MaterialButton btnStretch = floatingView.findViewById(R.id.btn_scale_stretch);
+        MaterialButton btnFill = floatingView.findViewById(R.id.btn_scale_fill);
+        
+        btnFit.setBackgroundTintList(ColorStateList.valueOf("FIT".equals(config.scaleMode) ? activeColor : inactiveColor));
+        btnStretch.setBackgroundTintList(ColorStateList.valueOf("STRETCH".equals(config.scaleMode) ? activeColor : inactiveColor));
+        btnFill.setBackgroundTintList(ColorStateList.valueOf("FILL".equals(config.scaleMode) ? activeColor : inactiveColor));
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
+        unregisterReceiver(syncReceiver);
         if (floatingView != null) {
             windowManager.removeView(floatingView);
         }

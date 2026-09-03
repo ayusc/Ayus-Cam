@@ -1,6 +1,9 @@
 package com.vcam.ayuscam;
 
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.res.ColorStateList;
 import android.net.Uri;
 import android.os.Build;
@@ -12,22 +15,28 @@ import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
-
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.slider.Slider;
 
 public class ControlFragment extends Fragment {
-
     private AppConfig config;
     private TextView tvRotationVal, tvZoomVal, tvVolumeVal;
     private Slider sliderRotation, sliderZoom, sliderVolume;
     private MaterialButton btnFit, btnStretch, btnFill, btnHudToggle;
     private ImageButton btnPanUp, btnPanDown, btnPanLeft, btnPanRight, btnPanCenter;
+
+    // Receiver to sync UI when floating window makes changes
+    private final BroadcastReceiver syncReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            config = AppConfig.load();
+            updateUI();
+        }
+    };
 
     @Nullable
     @Override
@@ -53,31 +62,62 @@ public class ControlFragment extends Fragment {
         btnPanLeft = root.findViewById(R.id.btn_pan_left);
         btnPanRight = root.findViewById(R.id.btn_pan_right);
         btnPanCenter = root.findViewById(R.id.btn_pan_center);
-
+        
         setupListeners();
         updateUI();
-        
         return root;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        config = AppConfig.load();
+        updateUI();
+        IntentFilter filter = new IntentFilter("com.vcam.ayuscam.UPDATE_UI");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requireContext().registerReceiver(syncReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            requireContext().registerReceiver(syncReceiver, filter);
+        }
+    }
+
+    @Override
+    public void onPause() {
+        super.onPause();
+        requireContext().unregisterReceiver(syncReceiver);
+    }
+
+    private void notifySync() {
+        requireContext().sendBroadcast(new Intent("com.vcam.ayuscam.UPDATE_UI"));
     }
 
     private void setupListeners() {
         sliderRotation.addOnChangeListener((slider, value, fromUser) -> {
-            int rotation = ((int) value / 90) * 90;
-            config.rotation = rotation;
-            tvRotationVal.setText(rotation + "°");
-            config.save();
+            if (fromUser) {
+                int rotation = ((int) value / 90) * 90;
+                config.rotation = rotation;
+                tvRotationVal.setText(rotation + "°");
+                config.save();
+                notifySync();
+            }
         });
-
+        
         sliderZoom.addOnChangeListener((slider, value, fromUser) -> {
-            config.zoom = (int) value;
-            tvZoomVal.setText(config.zoom + "%");
-            config.save();
+            if (fromUser) {
+                config.zoom = (int) value;
+                tvZoomVal.setText(config.zoom + "%");
+                config.save();
+                notifySync();
+            }
         });
-
+        
         sliderVolume.addOnChangeListener((slider, value, fromUser) -> {
-            config.volume = (int) value;
-            tvVolumeVal.setText(config.volume + "%");
-            config.save();
+            if (fromUser) {
+                config.volume = (int) value;
+                tvVolumeVal.setText(config.volume + "%");
+                config.save();
+                notifySync();
+            }
         });
 
         btnFit.setOnClickListener(v -> setScaleMode("FIT"));
@@ -88,11 +128,12 @@ public class ControlFragment extends Fragment {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(requireContext())) {
                 Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + requireContext().getPackageName()));
                 startActivity(intent);
-                Toast.makeText(requireContext(), "Please grant overlay permissions to use Floating Window", Toast.LENGTH_LONG).show();
+                Toast.makeText(requireContext(), "Please grant overlay permissions", Toast.LENGTH_LONG).show();
             } else {
                 config.showHud = !config.showHud;
                 config.save();
                 updateUI();
+                notifySync();
                 Intent serviceIntent = new Intent(requireContext(), FloatingWindowService.class);
                 if (config.showHud) {
                     requireContext().startService(serviceIntent);
@@ -102,15 +143,16 @@ public class ControlFragment extends Fragment {
             }
         });
 
-        btnPanUp.setOnClickListener(v -> { if(config.zoom != 0) { config.panY -= 10; config.save(); } });
-        btnPanDown.setOnClickListener(v -> { if(config.zoom != 0) { config.panY += 10; config.save(); } });
-        btnPanLeft.setOnClickListener(v -> { if(config.zoom != 0) { config.panX -= 10; config.save(); } });
-        btnPanRight.setOnClickListener(v -> { if(config.zoom != 0) { config.panX += 10; config.save(); } });
+        btnPanUp.setOnClickListener(v -> { if(config.zoom != 0) { config.panY -= 10; config.save(); notifySync(); } });
+        btnPanDown.setOnClickListener(v -> { if(config.zoom != 0) { config.panY += 10; config.save(); notifySync(); } });
+        btnPanLeft.setOnClickListener(v -> { if(config.zoom != 0) { config.panX -= 10; config.save(); notifySync(); } });
+        btnPanRight.setOnClickListener(v -> { if(config.zoom != 0) { config.panX += 10; config.save(); notifySync(); } });
         
         btnPanCenter.setOnClickListener(v -> { 
             config.isPaused = !config.isPaused; 
             config.save(); 
             updateUI(); 
+            notifySync();
         });
     }
 
@@ -118,6 +160,7 @@ public class ControlFragment extends Fragment {
         config.scaleMode = mode;
         config.save();
         updateUI();
+        notifySync();
     }
 
     private void updateUI() {
@@ -130,15 +173,15 @@ public class ControlFragment extends Fragment {
         tvVolumeVal.setText(config.volume + "%");
         
         btnPanCenter.setImageResource(config.isPaused ? 
-             android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause);
-
+            android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause);
+        
         int activeColor = ContextCompat.getColor(requireContext(), R.color.accent_red);
         int inactiveColor = ContextCompat.getColor(requireContext(), R.color.inner_box_dark);
         
         btnFit.setBackgroundTintList(ColorStateList.valueOf("FIT".equals(config.scaleMode) ? activeColor : inactiveColor));
         btnStretch.setBackgroundTintList(ColorStateList.valueOf("STRETCH".equals(config.scaleMode) ? activeColor : inactiveColor));
         btnFill.setBackgroundTintList(ColorStateList.valueOf("FILL".equals(config.scaleMode) ? activeColor : inactiveColor));
-
+        
         btnHudToggle.setText(config.showHud ? "Hide Floating Window" : "Show Floating Window");
     }
 }

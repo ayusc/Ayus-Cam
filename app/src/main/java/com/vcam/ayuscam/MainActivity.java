@@ -29,6 +29,18 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        checkAndRequestPermissions();
+
+        AppConfig config = AppConfig.load();
+        config.showHud = false;
+        config.save();
+     
+        stopService(new Intent(this, FloatingWindowService.class));
+
+        BottomNavigationView bottomNav = findViewById(R.id.bottom_navigation);
+
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
 
         checkAndRequestPermissions();
 
