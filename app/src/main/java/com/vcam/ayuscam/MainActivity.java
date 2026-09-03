@@ -29,22 +29,19 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        
         checkAndRequestPermissions();
 
+        // Reset floating window state when app opens
         AppConfig config = AppConfig.load();
         config.showHud = false;
         config.save();
      
+        // Stop service if it was left lingering
         stopService(new Intent(this, FloatingWindowService.class));
 
         BottomNavigationView bottomNav = findViewById(R.id.bottom_navigation);
-
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-
-        checkAndRequestPermissions();
-
-        BottomNavigationView bottomNav = findViewById(R.id.bottom_navigation);
+        
         if (savedInstanceState == null) {
             getSupportFragmentManager().beginTransaction()
                     .replace(R.id.fragment_container, new HomeFragment())
