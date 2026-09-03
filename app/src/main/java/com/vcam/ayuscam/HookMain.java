@@ -419,53 +419,55 @@ public class HookMain implements IXposedHookLoadPackage {
                     if (surface != null && surface.isValid()) {
                         Canvas canvas = null;
                         try {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                canvas = surface.lockHardwareCanvas();
-                            } else {
-                                canvas = surface.lockCanvas(null);
-                            }
-                        } catch (Exception ignored) {}
+                            // Using standard Canvas lock for maximum compatibility across older apps
+                            canvas = surface.lockCanvas(null);
+                        } catch (Exception e) {
+                            writeLog("Failed to lock surface canvas: " + e.getMessage());
+                        }
                         
                         if (canvas != null) {
-                            String targetPath = localConfig.getActiveMediaPath();
-                            if (activeBitmap == null || !loadedPath.equals(targetPath)) {
-                                if (activeBitmap != null) activeBitmap.recycle();
-                                activeBitmap = BitmapFactory.decodeFile(targetPath);
-                                loadedPath = targetPath;
-                            }
-
-                            canvas.drawColor(Color.BLACK);
-
-                            if (activeBitmap != null && localConfig.zoom > 0 && !localConfig.isPaused) {
-                                int viewW = canvas.getWidth();
-                                int viewH = canvas.getHeight();
-                                int bmpW = activeBitmap.getWidth();
-                                int bmpH = activeBitmap.getHeight();
-
-                                Matrix m = new Matrix();
-                                m.postTranslate(-bmpW / 2f, -bmpH / 2f);
-
-                                float scaleX = 1f, scaleY = 1f;
-                                if ("STRETCH".equals(localConfig.scaleMode)) {
-                                    scaleX = (float) viewW / bmpW;
-                                    scaleY = (float) viewH / bmpH;
-                                } else {
-                                    float fitScale = Math.min((float) viewW / bmpW, (float) viewH / bmpH);
-                                    float fillScale = Math.max((float) viewW / bmpW, (float) viewH / bmpH);
-                                    float baseScale = "FIT".equals(localConfig.scaleMode) ? fitScale : fillScale;
-                                    scaleX = baseScale;
-                                    scaleY = baseScale;
+                            try {
+                                String targetPath = localConfig.getActiveMediaPath();
+                                if (activeBitmap == null || !loadedPath.equals(targetPath)) {
+                                    if (activeBitmap != null) activeBitmap.recycle();
+                                    activeBitmap = BitmapFactory.decodeFile(targetPath);
+                                    loadedPath = targetPath;
                                 }
-                                m.postScale(scaleX, scaleY);
 
-                                float zoom = localConfig.zoom / 100f;
-                                m.postScale(zoom, zoom);
-                                m.postRotate(localConfig.rotation);
-                                
-                                m.postTranslate(viewW / 2f + localConfig.panX, viewH / 2f + localConfig.panY);
-                                canvas.drawBitmap(activeBitmap, m, null);
+                                canvas.drawColor(Color.BLACK);
+
+                                if (activeBitmap != null && localConfig.zoom > 0 && !localConfig.isPaused) {
+                                    int viewW = canvas.getWidth();
+                                    int viewH = canvas.getHeight();
+                                    int bmpW = activeBitmap.getWidth();
+                                    int bmpH = activeBitmap.getHeight();
+
+                                    Matrix m = new Matrix();
+                                    m.postTranslate(-bmpW / 2f, -bmpH / 2f);
+
+                                    float scaleX = 1f, scaleY = 1f;
+                                    if ("STRETCH".equals(localConfig.scaleMode)) {
+                                        scaleX = (float) viewW / bmpW;
+                                        scaleY = (float) viewH / bmpH;
+                                    } else {
+                                        float fitScale = Math.min((float) viewW / bmpW, (float) viewH / bmpH);
+                                        float fillScale = Math.max((float) viewW / bmpW, (float) viewH / bmpH);
+                                        float baseScale = "FIT".equals(localConfig.scaleMode) ? fitScale : fillScale;
+                                        scaleX = baseScale;
+                                        scaleY = baseScale;
+                                    }
+                                    m.postScale(scaleX, scaleY);
+
+                                    float zoom = localConfig.zoom / 100f;
+                                    m.postScale(zoom, zoom);
+                                    m.postRotate(localConfig.rotation);
+                                    
+                                    m.postTranslate(viewW / 2f + localConfig.panX, viewH / 2f + localConfig.panY);
+                                    canvas.drawBitmap(activeBitmap, m, null);
+                                }
+                            } finally {
+                                surface.unlockCanvasAndPost(canvas);
                             }
-                            surface.unlockCanvasAndPost(canvas);
                         }
                     }
                     Thread.sleep(33);
@@ -573,6 +575,8 @@ public class HookMain implements IXposedHookLoadPackage {
         public void run() {
             mRunning = true;
             initEGL();
+            if (!mRunning) return;
+
             initGL();
             
             mSurfaceTexture = new SurfaceTexture(mTextureID);
@@ -586,7 +590,8 @@ public class HookMain implements IXposedHookLoadPackage {
                 mMediaPlayer.setLooping(true);
                 AppConfig startCfg = getLiveConfig();
                 mMediaPlayer.setVolume(startCfg.volume / 100f, startCfg.volume / 100f);
-                mMediaPlayer.prepare();
+                mMediaPlayer.prepare(); // Synchronous prepare since it's a local file
+                
                 if (!startCfg.isPaused) {
                     mMediaPlayer.start();
                 }
@@ -605,9 +610,13 @@ public class HookMain implements IXposedHookLoadPackage {
                     try { mFrameSyncObject.wait(33); } catch (InterruptedException e) {}
                     if (mFrameAvailable) {
                         mFrameAvailable = false;
-                        mSurfaceTexture.updateTexImage();
-                        mSurfaceTexture.getTransformMatrix(mSTMatrix);
-                        frameUpdated = true;
+                        try {
+                            mSurfaceTexture.updateTexImage();
+                            mSurfaceTexture.getTransformMatrix(mSTMatrix);
+                            frameUpdated = true;
+                        } catch (Exception e) {
+                            writeLog("EGL Surface Texture update failed");
+                        }
                     }
                 }
 
@@ -641,6 +650,15 @@ public class HookMain implements IXposedHookLoadPackage {
         }
 
         private void drawFrame(AppConfig config) {
+            int[] width = new int[1];
+            int[] height = new int[1];
+            EGL14.eglQuerySurface(mEGLDisplay, mEGLSurface, EGL14.EGL_WIDTH, width, 0);
+            EGL14.eglQuerySurface(mEGLDisplay, mEGLSurface, EGL14.EGL_HEIGHT, height, 0);
+
+            // Halt drawing if the surface hasn't received dimensions yet
+            if (width[0] == 0 || height[0] == 0) return;
+
+            GLES20.glViewport(0, 0, width[0], height[0]);
             GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
 
@@ -686,9 +704,7 @@ public class HookMain implements IXposedHookLoadPackage {
             
             if (videoW > 0 && videoH > 0) {
                 float videoAspect = (float) videoW / videoH;
-                
-                // Typical viewport aspect - assuming mostly 16:9 portraits for standard camera intercepts
-                float viewAspect = 9f / 16f; 
+                float viewAspect = (float) width[0] / height[0]; 
                 
                 if ("STRETCH".equals(config.scaleMode)) {
                     scaleX = 1f; scaleY = 1f;
@@ -736,11 +752,24 @@ public class HookMain implements IXposedHookLoadPackage {
             };
             EGLConfig[] configs = new EGLConfig[1];
             int[] numConfigs = new int[1];
-            EGL14.eglChooseConfig(mEGLDisplay, attribList, 0, configs, 0, configs.length, numConfigs, 0);
+            
+            if (!EGL14.eglChooseConfig(mEGLDisplay, attribList, 0, configs, 0, configs.length, numConfigs, 0)) {
+                writeLog("EGL Config Initialization Failed");
+                mRunning = false;
+                return;
+            }
+            
             int[] contextAttribs = { EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE };
             mEGLContext = EGL14.eglCreateContext(mEGLDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0);
             int[] surfaceAttribs = { EGL14.EGL_NONE };
             mEGLSurface = EGL14.eglCreateWindowSurface(mEGLDisplay, configs[0], mOutputSurface, surfaceAttribs, 0);
+            
+            if (mEGLSurface == null || mEGLSurface == EGL14.EGL_NO_SURFACE) {
+                writeLog("EGL Surface Creation Failed: " + EGL14.eglGetError());
+                mRunning = false;
+                return;
+            }
+            
             EGL14.eglMakeCurrent(mEGLDisplay, mEGLSurface, mEGLSurface, mEGLContext);
         }
 
@@ -751,6 +780,8 @@ public class HookMain implements IXposedHookLoadPackage {
             GLES20.glAttachShader(mProgram, vertexShader);
             GLES20.glAttachShader(mProgram, fragmentShader);
             GLES20.glLinkProgram(mProgram);
+            
+            GLES20.glDisable(GLES20.GL_CULL_FACE); // Ensure matrices aren't clipped inside out
 
             int[] textures = new int[1];
             GLES20.glGenTextures(1, textures, 0);
