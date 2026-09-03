@@ -45,25 +45,25 @@ public class HookMain implements IXposedHookLoadPackage {
     private static volatile boolean renderImage = false;
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
+    // Bitmap Caching Variables
+    private static Bitmap cachedBitmap = null;
+    private static String cachedImagePath = "";
+    private static int cachedWidth = 0;
+    private static int cachedHeight = 0;
+    private static int cachedRotation = 0;
+    private static String cachedScaleMode = "";
+
     private static AppConfig getLiveConfig() {
         return AppConfig.load();
     }
 
     private static boolean isSubstitutionActive() {
         AppConfig config = getLiveConfig();
-        if (!config.enabled) {
-            writeLog("[HOOK-STATUS] Virtual camera disabled in settings.");
-            return false;
-        }
+        if (!config.enabled) return false;
         String path = config.getActiveMediaPath();
-        if (path == null || path.trim().isEmpty()) {
-            writeLog("[HOOK-STATUS] No active media path configured. Media list count: " + config.mediaPaths.size());
-            return false;
-        }
+        if (path == null || path.trim().isEmpty()) return false;
         File file = new File(path);
-        boolean exists = file.exists() && file.canRead();
-        writeLog("[HOOK-STATUS] Active Media Path: " + path + " | Exists & Readable: " + exists);
-        return exists;
+        return file.exists() && file.canRead();
     }
 
     private static void writeLog(String text) {
@@ -95,8 +95,6 @@ public class HookMain implements IXposedHookLoadPackage {
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if ("com.vcam.ayuscam".equals(lpparam.packageName)) return;
 
-        writeLog("[INIT] Loaded in package: " + lpparam.packageName + " | Process: " + lpparam.processName);
-
         try {
             XposedHelpers.findAndHookMethod("android.app.Instrumentation", lpparam.classLoader,
                     "callApplicationOnCreate", Application.class, new XC_MethodHook() {
@@ -104,21 +102,17 @@ public class HookMain implements IXposedHookLoadPackage {
                         protected void afterHookedMethod(MethodHookParam param) {
                             if (param.args[0] instanceof Application) {
                                 appContext = ((Application) param.args[0]).getApplicationContext();
-                                writeLog("[APP-ATTACH] Captured Application Context: " + appContext.getPackageName());
                             }
                         }
                     });
-        } catch (Throwable t) {
-            writeLog("[ERROR] Failed to hook callApplicationOnCreate: " + t);
-        }
+        } catch (Throwable ignored) {}
 
-        // Camera 1 API Hooks
+        // Camera 1 Hooks
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader,
                     "setPreviewTexture", SurfaceTexture.class, new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            writeLog("[CAMERA1] setPreviewTexture called");
                             if (!isSubstitutionActive()) return;
                             SurfaceTexture realST = (SurfaceTexture) param.args[0];
                             if (realST != null) {
@@ -128,9 +122,7 @@ public class HookMain implements IXposedHookLoadPackage {
                             param.args[0] = fake_SurfaceTexture;
                         }
                     });
-        } catch (Throwable t) {
-            writeLog("[ERROR] Failed Camera1 setPreviewTexture hook: " + t);
-        }
+        } catch (Throwable ignored) {}
 
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader,
@@ -138,7 +130,6 @@ public class HookMain implements IXposedHookLoadPackage {
                     Camera.PictureCallback.class, Camera.PictureCallback.class, new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            writeLog("[CAMERA1] takePicture called");
                             if (!isSubstitutionActive()) return;
                             AppConfig config = getLiveConfig();
                             if (!"IMAGE".equals(config.getActiveMediaType())) return;
@@ -148,7 +139,7 @@ public class HookMain implements IXposedHookLoadPackage {
                             int targetW = picSize != null ? picSize.width : 1920;
                             int targetH = picSize != null ? picSize.height : 1080;
 
-                            Bitmap finalBitmap = getScaledReplacementBitmap(config.getActiveMediaPath(), targetW, targetH, config);
+                            Bitmap finalBitmap = getCachedScaledBitmap(config.getActiveMediaPath(), targetW, targetH, config);
                             if (finalBitmap != null) {
                                 ByteArrayOutputStream stream = new ByteArrayOutputStream();
                                 finalBitmap.compress(Bitmap.CompressFormat.JPEG, 100, stream);
@@ -156,29 +147,23 @@ public class HookMain implements IXposedHookLoadPackage {
                                 Object jpegCallback = param.args[3];
                                 if (jpegCallback != null) {
                                     XposedHelpers.callMethod(jpegCallback, "onPictureTaken", jpegData, camera);
-                                    writeLog("[CAMERA1] Injected custom JPEG bitmap into onPictureTaken");
                                 }
                                 param.setResult(null);
                             }
                         }
                     });
-        } catch (Throwable t) {
-            writeLog("[ERROR] Failed Camera1 takePicture hook: " + t);
-        }
+        } catch (Throwable ignored) {}
 
-        // Camera 2 API Hooks
+        // Camera 2 Hooks
         try {
             XposedHelpers.findAndHookMethod("android.hardware.camera2.CameraManager", lpparam.classLoader,
                     "openCamera", String.class, CameraDevice.StateCallback.class, Handler.class, new XC_MethodHook() {
                         @Override
                         protected void beforeHookedMethod(MethodHookParam param) {
-                            writeLog("[CAMERA2] openCamera (Handler) called for CameraId: " + param.args[0]);
                             if (param.args[1] != null) hookCamera2DeviceCallbacks(param.args[1].getClass());
                         }
                     });
-        } catch (Throwable t) {
-            writeLog("[ERROR] Failed Camera2 openCamera (Handler) hook: " + t);
-        }
+        } catch (Throwable ignored) {}
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
@@ -186,43 +171,33 @@ public class HookMain implements IXposedHookLoadPackage {
                         "openCamera", String.class, Executor.class, CameraDevice.StateCallback.class, new XC_MethodHook() {
                             @Override
                             protected void beforeHookedMethod(MethodHookParam param) {
-                                writeLog("[CAMERA2] openCamera (Executor) called for CameraId: " + param.args[0]);
                                 if (param.args[2] != null) hookCamera2DeviceCallbacks(param.args[2].getClass());
                             }
                         });
-            } catch (Throwable t) {
-                writeLog("[ERROR] Failed Camera2 openCamera (Executor) hook: " + t);
-            }
+            } catch (Throwable ignored) {}
         }
     }
 
     private void hookCamera2DeviceCallbacks(Class<?> stateCallbackClass) {
         if (!hooked_classes.add(stateCallbackClass)) return;
-        writeLog("[HOOK] Hooking Device StateCallback: " + stateCallbackClass.getName());
         try {
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onOpened", CameraDevice.class, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
                     CameraDevice device = (CameraDevice) param.args[0];
-                    writeLog("[CAMERA2] CameraDevice onOpened: " + device.getId() + " (" + device.getClass().getName() + ")");
                     hookCamera2Sessions(device.getClass());
                 }
             });
-        } catch (Throwable t) {
-            writeLog("[ERROR] Failed hooking onOpened: " + t);
-        }
+        } catch (Throwable ignored) {}
     }
 
     private void hookCamera2Sessions(Class<?> deviceClass) {
         if (!hooked_classes.add(deviceClass)) return;
-        writeLog("[HOOK] Hooking CameraDevice class: " + deviceClass.getName());
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", SessionConfiguration.class, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
-                        writeLog("[CAMERA2] createCaptureSession(SessionConfiguration) triggered");
                         if (!isSubstitutionActive()) return;
                         SessionConfiguration sessionConfig = (SessionConfiguration) param.args[0];
                         if (sessionConfig != null) {
@@ -231,7 +206,6 @@ public class HookMain implements IXposedHookLoadPackage {
                                 for (OutputConfiguration oc : configs) {
                                     Surface targetSurface = oc.getSurface();
                                     if (targetSurface != null && targetSurface.isValid()) {
-                                        writeLog("[CAMERA2] Hijacking SessionConfiguration output surface");
                                         startMediaPlayback(targetSurface);
                                     }
                                 }
@@ -239,61 +213,30 @@ public class HookMain implements IXposedHookLoadPackage {
                         }
                     }
                 });
-            } catch (Throwable t) {
-                writeLog("[ERROR] Failed hooking createCaptureSession(SessionConfiguration): " + t);
-            }
+            } catch (Throwable ignored) {}
         }
 
         try {
             XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    writeLog("[CAMERA2] createCaptureSession(List) triggered");
                     if (!isSubstitutionActive()) return;
                     List<Surface> originalSurfaces = (List<Surface>) param.args[0];
                     if (originalSurfaces != null) {
                         for (Surface targetSurface : originalSurfaces) {
                             if (targetSurface != null && targetSurface.isValid()) {
-                                writeLog("[CAMERA2] Hijacking direct Surface list item");
                                 startMediaPlayback(targetSurface);
                             }
                         }
                     }
                 }
             });
-        } catch (Throwable t) {
-            writeLog("[ERROR] Failed hooking createCaptureSession(List): " + t);
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            try {
-                XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSessionByOutputConfigurations", List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) {
-                        writeLog("[CAMERA2] createCaptureSessionByOutputConfigurations triggered");
-                        if (!isSubstitutionActive()) return;
-                        List<OutputConfiguration> configs = (List<OutputConfiguration>) param.args[0];
-                        if (configs != null) {
-                            for (OutputConfiguration oc : configs) {
-                                Surface targetSurface = oc.getSurface();
-                                if (targetSurface != null && targetSurface.isValid()) {
-                                    writeLog("[CAMERA2] Hijacking OutputConfiguration surface");
-                                    startMediaPlayback(targetSurface);
-                                }
-                            }
-                        }
-                    }
-                });
-            } catch (Throwable t) {
-                writeLog("[ERROR] Failed hooking createCaptureSessionByOutputConfigurations: " + t);
-            }
-        }
+        } catch (Throwable ignored) {}
     }
 
     private static void startMediaPlayback(Surface targetSurface) {
         AppConfig config = getLiveConfig();
         stopImageRenderLoop();
-        writeLog("[PLAYBACK] Initializing media injection. Mode: " + config.getActiveMediaType() + " | Path: " + config.getActiveMediaPath());
 
         if ("VIDEO".equals(config.getActiveMediaType())) {
             if (mediaPlayer != null) {
@@ -314,18 +257,9 @@ public class HookMain implements IXposedHookLoadPackage {
                 } else {
                     mediaPlayer.setVideoScalingMode(MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT);
                 }
-                mediaPlayer.setOnPreparedListener(mp -> {
-                    mp.start();
-                    writeLog("[PLAYBACK-SUCCESS] Video playback started dynamically into camera stream");
-                });
-                mediaPlayer.setOnErrorListener((mp, what, extra) -> {
-                    writeLog("[PLAYBACK-ERROR] MediaPlayer Error: what=" + what + " extra=" + extra);
-                    return false;
-                });
+                mediaPlayer.setOnPreparedListener(MediaPlayer::start);
                 mediaPlayer.prepareAsync();
-            } catch (Exception e) {
-                writeLog("[PLAYBACK-EXCEPTION] Failed starting video playback: " + e);
-            }
+            } catch (Exception ignored) {}
         } else if ("IMAGE".equals(config.getActiveMediaType())) {
             startImageRenderLoop(targetSurface, config);
         }
@@ -334,13 +268,12 @@ public class HookMain implements IXposedHookLoadPackage {
     private static void startImageRenderLoop(Surface surface, AppConfig config) {
         renderImage = true;
         imageRenderThread = new Thread(() -> {
-            writeLog("[IMAGE-LOOP] Rendering loop started");
             while (renderImage) {
                 try {
                     if (surface != null && surface.isValid()) {
                         Canvas canvas = surface.lockCanvas(null);
                         if (canvas != null) {
-                            Bitmap bitmap = getScaledReplacementBitmap(config.getActiveMediaPath(), canvas.getWidth(), canvas.getHeight(), config);
+                            Bitmap bitmap = getCachedScaledBitmap(config.getActiveMediaPath(), canvas.getWidth(), canvas.getHeight(), config);
                             if (bitmap != null) {
                                 canvas.drawBitmap(bitmap, 0, 0, null);
                             } else {
@@ -350,11 +283,8 @@ public class HookMain implements IXposedHookLoadPackage {
                         }
                     }
                     Thread.sleep(66);
-                } catch (Exception e) {
-                    writeLog("[IMAGE-LOOP-EXCEPTION] " + e);
-                }
+                } catch (Exception ignored) {}
             }
-            writeLog("[IMAGE-LOOP] Rendering loop terminated");
         });
         imageRenderThread.start();
     }
@@ -367,44 +297,71 @@ public class HookMain implements IXposedHookLoadPackage {
         }
     }
 
-    private static Bitmap getScaledReplacementBitmap(String imagePath, int targetWidth, int targetHeight, AppConfig config) {
-        Bitmap original = BitmapFactory.decodeFile(imagePath);
-        if (original == null) {
-            writeLog("[SCALE-ERROR] Failed to decode bitmap: " + imagePath);
-            return null;
+    private static Bitmap getCachedScaledBitmap(String imagePath, int targetWidth, int targetHeight, AppConfig config) {
+        // Return cached bitmap if configuration hasn't changed to prevent memory leak
+        if (cachedBitmap != null && imagePath.equals(cachedImagePath) && targetWidth == cachedWidth && targetHeight == cachedHeight && config.rotation == cachedRotation && config.scaleMode.equals(cachedScaleMode)) {
+            return cachedBitmap;
         }
+
+        if (cachedBitmap != null && !cachedBitmap.isRecycled()) {
+            cachedBitmap.recycle();
+            cachedBitmap = null;
+        }
+
+        Bitmap original = BitmapFactory.decodeFile(imagePath);
+        if (original == null) return null;
+
         int srcW = original.getWidth();
         int srcH = original.getHeight();
 
-        if (srcW == targetWidth && srcH == targetHeight && config.rotation == 0) return original;
-
-        Matrix matrix = new Matrix();
-        if (config.rotation != 0) {
-            matrix.postRotate(config.rotation);
-            original = Bitmap.createBitmap(original, 0, 0, srcW, srcH, matrix, true);
-            srcW = original.getWidth();
-            srcH = original.getHeight();
-            matrix.reset();
-        }
-
-        float scale;
-        if ("STRETCH".equals(config.scaleMode)) {
-            matrix.postScale((float) targetWidth / srcW, (float) targetHeight / srcH);
-            return Bitmap.createBitmap(original, 0, 0, srcW, srcH, matrix, true);
-        } else if ("FIT".equals(config.scaleMode)) {
-            scale = Math.min((float) targetWidth / srcW, (float) targetHeight / srcH);
+        if (srcW == targetWidth && srcH == targetHeight && config.rotation == 0) {
+            cachedBitmap = original;
         } else {
-            scale = Math.max((float) targetWidth / srcW, (float) targetHeight / srcH);
+            Matrix matrix = new Matrix();
+            if (config.rotation != 0) {
+                matrix.postRotate(config.rotation);
+                Bitmap rotated = Bitmap.createBitmap(original, 0, 0, srcW, srcH, matrix, true);
+                if (rotated != original) {
+                    original.recycle();
+                    original = rotated;
+                }
+                srcW = original.getWidth();
+                srcH = original.getHeight();
+                matrix.reset();
+            }
+
+            float scale;
+            if ("STRETCH".equals(config.scaleMode)) {
+                matrix.postScale((float) targetWidth / srcW, (float) targetHeight / srcH);
+                cachedBitmap = Bitmap.createBitmap(original, 0, 0, srcW, srcH, matrix, true);
+                if (cachedBitmap != original) original.recycle();
+            } else {
+                if ("FIT".equals(config.scaleMode)) {
+                    scale = Math.min((float) targetWidth / srcW, (float) targetHeight / srcH);
+                } else {
+                    scale = Math.max((float) targetWidth / srcW, (float) targetHeight / srcH);
+                }
+                matrix.postScale(scale, scale);
+                Bitmap scaled = Bitmap.createBitmap(original, 0, 0, srcW, srcH, matrix, true);
+                if (scaled != original) original.recycle();
+
+                if ("FILL".equals(config.scaleMode)) {
+                    int x = Math.max(0, (scaled.getWidth() - targetWidth) / 2);
+                    int y = Math.max(0, (scaled.getHeight() - targetHeight) / 2);
+                    cachedBitmap = Bitmap.createBitmap(scaled, x, y, Math.min(targetWidth, scaled.getWidth()), Math.min(targetHeight, scaled.getHeight()));
+                    if (cachedBitmap != scaled) scaled.recycle();
+                } else {
+                    cachedBitmap = scaled;
+                }
+            }
         }
 
-        matrix.postScale(scale, scale);
-        Bitmap scaled = Bitmap.createBitmap(original, 0, 0, srcW, srcH, matrix, true);
+        cachedImagePath = imagePath;
+        cachedWidth = targetWidth;
+        cachedHeight = targetHeight;
+        cachedRotation = config.rotation;
+        cachedScaleMode = config.scaleMode;
 
-        if ("FILL".equals(config.scaleMode)) {
-            int x = Math.max(0, (scaled.getWidth() - targetWidth) / 2);
-            int y = Math.max(0, (scaled.getHeight() - targetHeight) / 2);
-            return Bitmap.createBitmap(scaled, x, y, targetWidth, targetHeight);
-        }
-        return scaled;
+        return cachedBitmap;
     }
 }

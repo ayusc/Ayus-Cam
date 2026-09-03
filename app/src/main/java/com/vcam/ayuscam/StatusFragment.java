@@ -11,7 +11,6 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
 
 import java.io.BufferedReader;
@@ -19,12 +18,13 @@ import java.io.File;
 import java.io.FileReader;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.LinkedList;
 import java.util.Locale;
 
 public class StatusFragment extends Fragment {
 
     private TextView tvDaemonState, tvSocketStatus, tvRotationState, tvZoomState, tvScaleState, tvConsoleLogs;
-    private NestedScrollView scrollConsoleLogs;
+    private View scrollConsoleLogs; // Changed to generic View to prevent ClassCastException
     private Button btnClearLogs;
 
     @SuppressLint("ClickableViewAccessibility")
@@ -40,17 +40,24 @@ public class StatusFragment extends Fragment {
         tvScaleState = root.findViewById(R.id.tv_status_scale);
         tvConsoleLogs = root.findViewById(R.id.tv_console_logs);
         scrollConsoleLogs = root.findViewById(R.id.scroll_console_logs);
+        
+        // Fallback just in case XML wasn't updated
+        if (scrollConsoleLogs == null && tvConsoleLogs != null) {
+            scrollConsoleLogs = (View) tvConsoleLogs.getParent();
+        }
+
         btnClearLogs = root.findViewById(R.id.btn_clear_logs);
 
-        // Fix inner log scrolling interception
-        scrollConsoleLogs.setOnTouchListener((v, event) -> {
-            if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) {
-                v.getParent().requestDisallowInterceptTouchEvent(true);
-            } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
-                v.getParent().requestDisallowInterceptTouchEvent(false);
-            }
-            return false;
-        });
+        if (scrollConsoleLogs != null) {
+            scrollConsoleLogs.setOnTouchListener((v, event) -> {
+                if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) {
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                }
+                return false;
+            });
+        }
 
         btnClearLogs.setOnClickListener(v -> {
             File logFile = new File(AppConfig.LOG_FILE);
@@ -92,19 +99,38 @@ public class StatusFragment extends Fragment {
             return;
         }
 
-        StringBuilder sb = new StringBuilder();
         try (BufferedReader br = new BufferedReader(new FileReader(logFile))) {
+            // Buffer to only keep the last 100 lines to prevent OOM crash
+            LinkedList<String> lines = new LinkedList<>();
             String line;
             while ((line = br.readLine()) != null) {
-                sb.append(line).append("\n");
+                lines.add(line);
+                if (lines.size() > 100) {
+                    lines.removeFirst();
+                }
             }
+            
+            StringBuilder sb = new StringBuilder();
+            for (String l : lines) {
+                sb.append(l).append("\n");
+            }
+            
             if (sb.length() == 0) {
                 sb.append("[").append(time).append("] App Opened.\n[").append(time).append("] Ready for camera replacement.\n");
             }
             tvConsoleLogs.setText(sb.toString());
 
-            // Auto-scroll to bottom of logs
-            scrollConsoleLogs.post(() -> scrollConsoleLogs.fullScroll(View.FOCUS_DOWN));
+            if (scrollConsoleLogs != null) {
+                scrollConsoleLogs.post(() -> {
+                    try {
+                        if (scrollConsoleLogs instanceof androidx.core.widget.NestedScrollView) {
+                            ((androidx.core.widget.NestedScrollView) scrollConsoleLogs).fullScroll(View.FOCUS_DOWN);
+                        } else if (scrollConsoleLogs instanceof android.widget.ScrollView) {
+                            ((android.widget.ScrollView) scrollConsoleLogs).fullScroll(View.FOCUS_DOWN);
+                        }
+                    } catch (Exception ignored) {}
+                });
+            }
         } catch (Exception e) {
             tvConsoleLogs.setText("Error reading logs: " + e.getMessage());
         }
