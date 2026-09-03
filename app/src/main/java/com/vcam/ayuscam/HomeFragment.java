@@ -1,5 +1,6 @@
 package com.vcam.ayuscam;
 
+import android.annotation.SuppressLint;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -13,6 +14,7 @@ import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.Gravity;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
@@ -61,6 +63,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private final ActivityResultLauncher<String[]> pickVideoLauncher = registerForActivityResult(
             new ActivityResultContracts.OpenDocument(), uri -> handleMediaResult(uri, "VIDEO"));
 
+    @SuppressLint("ClickableViewAccessibility")
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
@@ -84,6 +87,21 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         scrollMediaList = root.findViewById(R.id.scroll_media_list);
 
         previewTextureView.setSurfaceTextureListener(this);
+
+        // Prevents the parent ScrollView from stealing touch/scroll events
+        if (scrollMediaList != null) {
+            scrollMediaList.setVerticalScrollBarEnabled(true);
+            scrollMediaList.setOnTouchListener((v, event) -> {
+                if (v.getParent() != null) {
+                    if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) {
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
+                    } else if (event.getAction() == MotionEvent.ACTION_UP || event.getAction() == MotionEvent.ACTION_CANCEL) {
+                        v.getParent().requestDisallowInterceptTouchEvent(false);
+                    }
+                }
+                return false;
+            });
+        }
 
         btnPickPhoto.setOnClickListener(v -> pickPhotoLauncher.launch(new String[]{"image/*"}));
         btnPickVideo.setOnClickListener(v -> pickVideoLauncher.launch(new String[]{"video/*"}));
@@ -118,11 +136,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         });
 
         updateUI();
-        
-        // FIX: Forces the preview to evaluate immediately upon returning to the fragment 
-        // to prevent the black screen when views are defaulted to GONE
         restartPreviewMode();
-        
         return root;
     }
 
@@ -214,14 +228,19 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private void renderMediaList() {
         llMediaList.removeAllViews();
         
-        // FIX: Dynamic list height based on item count to avoid extra empty space
-        ViewGroup.LayoutParams lp = scrollMediaList.getLayoutParams();
-        if (config.mediaPaths.size() > 3) {
-            lp.height = (int) (180 * getResources().getDisplayMetrics().density); // Fix height if list is long
-        } else {
-            lp.height = ViewGroup.LayoutParams.WRAP_CONTENT; // Hug items tightly if list is short
+        float density = getResources().getDisplayMetrics().density;
+        int singleRowHeight = (int) (54 * density);
+
+        // Limit container height to 3 items when there are more than 3
+        if (scrollMediaList != null) {
+            ViewGroup.LayoutParams lp = scrollMediaList.getLayoutParams();
+            if (config.mediaPaths.size() > 3) {
+                lp.height = singleRowHeight * 3;
+            } else {
+                lp.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            }
+            scrollMediaList.setLayoutParams(lp);
         }
-        scrollMediaList.setLayoutParams(lp);
 
         if (config.mediaPaths.isEmpty()) {
             llMediaList.addView(tvEmptyMedia);
@@ -231,7 +250,11 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         for (int i = 0; i < config.mediaPaths.size(); i++) {
             final int index = i;
             RelativeLayout row = new RelativeLayout(requireContext());
-            row.setPadding(24, 16, 24, 16);
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, singleRowHeight);
+            row.setLayoutParams(rowLp);
+            row.setPadding(24, 0, 24, 0);
+            row.setGravity(Gravity.CENTER_VERTICAL);
 
             if (config.selectedIndex == index) {
                 row.setBackgroundColor(0x3300E676);
@@ -387,11 +410,9 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             mediaPlayer = new MediaPlayer();
             mediaPlayer.setSurface(new Surface(surfaceTexture));
             mediaPlayer.setDataSource(config.getActiveMediaPath());
-            mediaPlayer.setLooping(true); // Native android flag
+            mediaPlayer.setLooping(true);
             mediaPlayer.setVolume(config.volume / 100f, config.volume / 100f);
             
-            // FIX: Some android devices ignore setLooping(true). 
-            // Setting onCompletionListener forcefully rewinds and loops the video preview
             mediaPlayer.setOnCompletionListener(mp -> {
                 mp.seekTo(0);
                 mp.start();
