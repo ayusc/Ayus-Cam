@@ -1,7 +1,9 @@
 package com.vcam.ayuscam;
 
+import android.Manifest;
 import android.app.Application;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -24,6 +26,7 @@ import android.opengl.EGLSurface;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.os.Build;
+import android.os.Environment;
 import android.os.Handler;
 import android.view.Surface;
 
@@ -50,7 +53,10 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 public class HookMain implements IXposedHookLoadPackage {
     private static Surface fake_Surface;
     private static SurfaceTexture fake_SurfaceTexture;
-    private static Context appContext;
+    public static Context toast_content;
+    
+    // Dynamic path resolved based on target app permissions
+    public static String video_path = Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/";
 
     // Playback Components
     private static Thread renderThread;
@@ -73,13 +79,13 @@ public class HookMain implements IXposedHookLoadPackage {
     private static Surface activePreviewSurface_1 = null;
     private static Surface currentPlayingSurface = null;
     private static Surface currentDataSurface = null;
-    
+
     private static AppConfig cachedConfig = null;
     private static long lastCheckTime = 0;
 
     private static AppConfig getLiveConfig() {
         if (cachedConfig == null || (System.currentTimeMillis() - lastCheckTime > 500)) {
-            cachedConfig = AppConfig.loadForHook();
+            cachedConfig = AppConfig.loadForHook(video_path);
             lastCheckTime = System.currentTimeMillis();
         }
         return cachedConfig;
@@ -126,16 +132,46 @@ public class HookMain implements IXposedHookLoadPackage {
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if ("com.vcam.ayuscam".equals(lpparam.packageName)) return;
 
+        // VCAM DIRECTORY PERMISSION RESOLVER
         try {
-            XposedHelpers.findAndHookMethod("android.app.Instrumentation", lpparam.classLoader,
-                    "callApplicationOnCreate", Application.class, new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            if (param.args[0] instanceof Application) {
-                                appContext = ((Application) param.args[0]).getApplicationContext();
+            XposedHelpers.findAndHookMethod("android.app.Instrumentation", lpparam.classLoader, "callApplicationOnCreate", Application.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    if (param.args[0] instanceof Application) {
+                        try {
+                            toast_content = ((Application) param.args[0]).getApplicationContext();
+                        } catch (Exception e) {
+                            XposedBridge.log("AyusCam: " + e.toString());
+                        }
+
+                        if (toast_content != null) {
+                            int auth_statue = 0;
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                try { auth_statue += (toast_content.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) + 1); } catch (Exception e) {}
+                                try {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                        auth_statue += (toast_content.checkSelfPermission(Manifest.permission.MANAGE_EXTERNAL_STORAGE) + 1);
+                                    }
+                                } catch (Exception e) {}
+                            } else {
+                                if (toast_content.checkCallingPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+                                    auth_statue = 2;
+                                }
+                            }
+
+                            if (auth_statue < 1) {
+                                File shown_file = new File(toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/");
+                                if (!shown_file.exists()) {
+                                    shown_file.mkdirs();
+                                }
+                                video_path = toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/";
+                            } else {
+                                video_path = Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/";
                             }
                         }
-                    });
+                    }
+                }
+            });
         } catch (Throwable ignored) {}
 
         // --- CAMERA 1: PREVIEW CALLBACKS ---
@@ -153,7 +189,6 @@ public class HookMain implements IXposedHookLoadPackage {
             } catch (Throwable ignored) {}
         }
 
-        // --- CAMERA 1: ADD CALLBACK BUFFER (CRITICAL FIX FOR CRASHES) ---
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "addCallbackBuffer", byte[].class, new XC_MethodHook() {
                 @Override
@@ -165,7 +200,6 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
-        // --- CAMERA 1: SET PREVIEW DISPLAY & TEXTURE ---
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "setPreviewDisplay", android.view.SurfaceHolder.class, new XC_MethodHook() {
                 @Override
@@ -198,7 +232,6 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
-        // --- CAMERA 1: START & STOP PREVIEW (CRITICAL LIFECYCLE FIX) ---
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "startPreview", new XC_MethodHook() {
                 @Override
@@ -221,7 +254,6 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
-        // --- CAMERA 1: TAKE PICTURE ---
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader,
                     "takePicture", Camera.ShutterCallback.class, Camera.PictureCallback.class,
@@ -336,7 +368,6 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
-        // Camera 2 Entry Hooks
         try {
             XposedHelpers.findAndHookMethod("android.hardware.camera2.CameraManager", lpparam.classLoader,
                     "openCamera", String.class, CameraDevice.StateCallback.class, Handler.class, new XC_MethodHook() {
@@ -710,7 +741,6 @@ public class HookMain implements IXposedHookLoadPackage {
             mRunning = true;
             initEGL();
             
-            // CRITICAL FIX: Direct Fallback if EGL Context fails to attach in target app
             if (!mRunning) {
                 startDirectFallbackPlayer();
                 return; 
