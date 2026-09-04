@@ -15,7 +15,6 @@ public class AppConfig {
     public static final String BASE_DIR = "/data/data/com.vcam.ayuscam/files/AyusCam/";
     public static final String CONFIG_FILE = BASE_DIR + "config.json";
     public static final String LOG_FILE = BASE_DIR + "daemon.log";
-
     public static final String TMP_DIR = "/data/local/tmp/AyusCam/";
 
     public boolean enabled = true;
@@ -174,8 +173,8 @@ public class AppConfig {
                 os.writeBytes("cp -f \"" + CONFIG_FILE + "\" \"" + TMP_DIR + "config.json\"\n");
                 
                 os.writeBytes("chmod -R 777 " + TMP_DIR + "\n");
-                // Attempt to neutralize SELinux blocks
-                os.writeBytes("chcon -R u:object_r:app_data_file:s0 " + TMP_DIR + "\n");
+                // Spoof SELinux to make the folder readable by ALL apps
+                os.writeBytes("chcon -R u:object_r:system_file:s0 " + TMP_DIR + "\n");
                 
                 os.writeBytes("exit\n");
                 os.flush();

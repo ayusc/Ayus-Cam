@@ -16,12 +16,23 @@ import android.hardware.camera2.params.InputConfiguration;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.media.MediaPlayer;
+import android.opengl.EGL14;
+import android.opengl.EGLConfig;
+import android.opengl.EGLContext;
+import android.opengl.EGLDisplay;
+import android.opengl.EGLSurface;
+import android.opengl.GLES11Ext;
+import android.opengl.GLES20;
 import android.os.Build;
 import android.os.Handler;
 import android.view.Surface;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.FloatBuffer;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -45,6 +56,7 @@ public class HookMain implements IXposedHookLoadPackage {
     private static Thread renderThread;
     private static volatile boolean renderActive = false;
     private static MediaPlayer mMediaPlayer;
+    private static GLVideoRenderer glVideoRenderer;
 
     // Data Streams
     public static volatile byte[] data_buffer = null;
@@ -55,7 +67,6 @@ public class HookMain implements IXposedHookLoadPackage {
     private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
     private static Surface activePreviewSurface = null;
     
-    // Guards to prevent continuous looping bugs
     private static Surface currentPlayingSurface = null;
     private static Surface currentDataSurface = null;
 
@@ -440,15 +451,8 @@ public class HookMain implements IXposedHookLoadPackage {
         AppConfig config = getLiveConfig();
 
         if ("VIDEO".equals(config.getActiveMediaType())) {
-            try {
-                mMediaPlayer = new MediaPlayer();
-                mMediaPlayer.setSurface(targetSurface);
-                mMediaPlayer.setDataSource(config.getActiveMediaPath());
-                mMediaPlayer.setLooping(true);
-                mMediaPlayer.setVolume(config.volume / 100f, config.volume / 100f);
-                mMediaPlayer.setOnPreparedListener(MediaPlayer::start);
-                mMediaPlayer.prepareAsync();
-            } catch (Exception e) {}
+            glVideoRenderer = new GLVideoRenderer(targetSurface, config.getActiveMediaPath());
+            glVideoRenderer.start();
         } else if ("IMAGE".equals(config.getActiveMediaType())) {
             startImageRenderLoop(targetSurface, config);
         }
@@ -461,6 +465,10 @@ public class HookMain implements IXposedHookLoadPackage {
             renderThread = null;
         }
         
+        if (glVideoRenderer != null) {
+            glVideoRenderer.release();
+            glVideoRenderer = null;
+        }
         if (mMediaPlayer != null) {
             try {
                 mMediaPlayer.stop();
@@ -489,7 +497,11 @@ public class HookMain implements IXposedHookLoadPackage {
                                 String targetPath = localConfig.getActiveMediaPath();
                                 if (activeBitmap == null || !loadedPath.equals(targetPath)) {
                                     if (activeBitmap != null) activeBitmap.recycle();
-                                    activeBitmap = BitmapFactory.decodeFile(targetPath);
+                                    
+                                    // Bypasses Daemon Path Block via FileDescriptor
+                                    FileInputStream fis = new FileInputStream(targetPath);
+                                    activeBitmap = BitmapFactory.decodeStream(fis);
+                                    fis.close();
                                     loadedPath = targetPath;
                                 }
 
@@ -538,36 +550,326 @@ public class HookMain implements IXposedHookLoadPackage {
     }
 
     private static Bitmap generateStaticImage(String imagePath, int targetWidth, int targetHeight, AppConfig config) {
-        Bitmap original = BitmapFactory.decodeFile(imagePath);
-        if (original == null) return null;
+        try {
+            FileInputStream fis = new FileInputStream(imagePath);
+            Bitmap original = BitmapFactory.decodeStream(fis);
+            fis.close();
+            if (original == null) return null;
 
-        Bitmap outBmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(outBmp);
-        canvas.drawColor(Color.BLACK);
+            Bitmap outBmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
+            Canvas canvas = new Canvas(outBmp);
+            canvas.drawColor(Color.BLACK);
 
-        Matrix m = new Matrix();
-        m.postTranslate(-original.getWidth() / 2f, -original.getHeight() / 2f);
+            Matrix m = new Matrix();
+            m.postTranslate(-original.getWidth() / 2f, -original.getHeight() / 2f);
 
-        float scaleX = 1f, scaleY = 1f;
-        if ("STRETCH".equals(config.scaleMode)) {
-            scaleX = (float) targetWidth / original.getWidth();
-            scaleY = (float) targetHeight / original.getHeight();
-        } else {
-            float fitScale = Math.min((float) targetWidth / original.getWidth(), (float) targetHeight / original.getHeight());
-            float fillScale = Math.max((float) targetWidth / original.getWidth(), (float) targetHeight / original.getHeight());
-            float baseScale = "FIT".equals(config.scaleMode) ? fitScale : fillScale;
-            scaleX = baseScale;
-            scaleY = baseScale;
+            float scaleX = 1f, scaleY = 1f;
+            if ("STRETCH".equals(config.scaleMode)) {
+                scaleX = (float) targetWidth / original.getWidth();
+                scaleY = (float) targetHeight / original.getHeight();
+            } else {
+                float fitScale = Math.min((float) targetWidth / original.getWidth(), (float) targetHeight / original.getHeight());
+                float fillScale = Math.max((float) targetWidth / original.getWidth(), (float) targetHeight / original.getHeight());
+                float baseScale = "FIT".equals(config.scaleMode) ? fitScale : fillScale;
+                scaleX = baseScale;
+                scaleY = baseScale;
+            }
+            m.postScale(scaleX, scaleY);
+            float zoom = config.zoom / 100f;
+            m.postScale(zoom, zoom);
+            m.postRotate(config.rotation);
+            m.postTranslate(targetWidth / 2f + config.panX, targetHeight / 2f + config.panY);
+
+            canvas.drawBitmap(original, m, null);
+            original.recycle();
+
+            return outBmp;
+        } catch (Exception e) {
+            return null;
         }
-        m.postScale(scaleX, scaleY);
-        float zoom = config.zoom / 100f;
-        m.postScale(zoom, zoom);
-        m.postRotate(config.rotation);
-        m.postTranslate(targetWidth / 2f + config.panX, targetHeight / 2f + config.panY);
+    }
 
-        canvas.drawBitmap(original, m, null);
-        original.recycle();
+    private static class GLVideoRenderer extends Thread implements SurfaceTexture.OnFrameAvailableListener {
+        private final Surface mOutputSurface;
+        private final String mVideoPath;
+        
+        private EGLDisplay mEGLDisplay = EGL14.EGL_NO_DISPLAY;
+        private EGLContext mEGLContext = EGL14.EGL_NO_CONTEXT;
+        private EGLSurface mEGLSurface = EGL14.EGL_NO_SURFACE;
+        
+        private int mProgram;
+        private int mTextureID;
+        private SurfaceTexture mSurfaceTexture;
+        private Surface mInputSurface;
+        
+        private boolean mRunning = false;
+        private boolean mFrameAvailable = false;
+        private final Object mFrameSyncObject = new Object();
+        private float[] mSTMatrix = new float[16];
+        
+        private static final String VERTEX_SHADER =
+                "uniform mat4 uSTMatrix;\n" +
+                "uniform mat4 uMVPMatrix;\n" +
+                "attribute vec4 aPosition;\n" +
+                "attribute vec4 aTextureCoord;\n" +
+                "varying vec2 vTextureCoord;\n" +
+                "void main() {\n" +
+                "  gl_Position = uMVPMatrix * aPosition;\n" +
+                "  vTextureCoord = (uSTMatrix * aTextureCoord).xy;\n" +
+                "}\n";
 
-        return outBmp;
+        private static final String FRAGMENT_SHADER =
+                "#extension GL_OES_EGL_image_external : require\n" +
+                "precision mediump float;\n" +
+                "varying vec2 vTextureCoord;\n" +
+                "uniform samplerExternalOES sTexture;\n" +
+                "void main() {\n" +
+                "  gl_FragColor = texture2D(sTexture, vTextureCoord);\n" +
+                "}\n";
+
+        private final float[] mTriangleVerticesData = {
+                -1.0f, -1.0f, 0, 0.f, 0.f, 
+                 1.0f, -1.0f, 0, 1.f, 0.f,
+                -1.0f,  1.0f, 0, 0.f, 1.f, 
+                 1.0f,  1.0f, 0, 1.f, 1.f,
+        };
+
+        private FloatBuffer mTriangleVertices;
+
+        public GLVideoRenderer(Surface targetSurface, String videoPath) {
+            this.mOutputSurface = targetSurface;
+            this.mVideoPath = videoPath;
+            mTriangleVertices = ByteBuffer.allocateDirect(mTriangleVerticesData.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+            mTriangleVertices.put(mTriangleVerticesData).position(0);
+        }
+
+        @Override
+        public void run() {
+            mRunning = true;
+            initEGL();
+            if (!mRunning) return;
+            initGL();
+            
+            mSurfaceTexture = new SurfaceTexture(mTextureID);
+            mSurfaceTexture.setOnFrameAvailableListener(this);
+            mInputSurface = new Surface(mSurfaceTexture);
+            
+            mMediaPlayer = new MediaPlayer();
+            try {
+                mMediaPlayer.setSurface(mInputSurface);
+                
+                // BYPASS MEDIASERVER DAEMON PATH BLOCK VIA FILEDESCRIPTOR
+                FileInputStream fis = new FileInputStream(mVideoPath);
+                mMediaPlayer.setDataSource(fis.getFD());
+                fis.close();
+                
+                mMediaPlayer.setLooping(true);
+                AppConfig startCfg = getLiveConfig();
+                mMediaPlayer.setVolume(startCfg.volume / 100f, startCfg.volume / 100f);
+                mMediaPlayer.prepare();
+
+                if (!startCfg.isPaused) mMediaPlayer.start();
+            } catch (Exception e) {
+                mRunning = false;
+            }
+
+            long lastCheckMod = 0;
+            AppConfig localConfig = getLiveConfig();
+            boolean wasPaused = localConfig.isPaused;
+
+            while (mRunning) {
+                synchronized (mFrameSyncObject) {
+                    try { mFrameSyncObject.wait(33); } catch (InterruptedException e) {}
+                    if (mFrameAvailable) {
+                        mFrameAvailable = false;
+                        try {
+                            mSurfaceTexture.updateTexImage();
+                            mSurfaceTexture.getTransformMatrix(mSTMatrix);
+                        } catch (Exception ignored) {}
+                    }
+                }
+
+                if (System.currentTimeMillis() - lastCheckMod > 500) {
+                    localConfig = getLiveConfig();
+                    lastCheckMod = System.currentTimeMillis();
+                    
+                    if (localConfig.isPaused && !wasPaused) {
+                        mMediaPlayer.pause();
+                        wasPaused = true;
+                    } else if (!localConfig.isPaused && wasPaused) {
+                        mMediaPlayer.start();
+                        wasPaused = false;
+                    }
+                    mMediaPlayer.setVolume(localConfig.volume / 100f, localConfig.volume / 100f);
+                }
+
+                if (mRunning) {
+                    drawFrame(localConfig);
+                    EGL14.eglSwapBuffers(mEGLDisplay, mEGLSurface);
+                }
+            }
+            
+            if (mMediaPlayer != null) {
+                mMediaPlayer.stop();
+                mMediaPlayer.release();
+            }
+            releaseEGL();
+        }
+
+        private void drawFrame(AppConfig config) {
+            int[] width = new int[1];
+            int[] height = new int[1];
+            EGL14.eglQuerySurface(mEGLDisplay, mEGLSurface, EGL14.EGL_WIDTH, width, 0);
+            EGL14.eglQuerySurface(mEGLDisplay, mEGLSurface, EGL14.EGL_HEIGHT, height, 0);
+
+            if (width[0] == 0 || height[0] == 0) return;
+            GLES20.glViewport(0, 0, width[0], height[0]);
+            GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+
+            if (config.zoom == 0) return;
+
+            GLES20.glUseProgram(mProgram);
+            int muSTMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uSTMatrix");
+            int muMVPMatrixHandle = GLES20.glGetUniformLocation(mProgram, "uMVPMatrix");
+            int maPositionHandle = GLES20.glGetAttribLocation(mProgram, "aPosition");
+            int maTextureHandle = GLES20.glGetAttribLocation(mProgram, "aTextureCoord");
+
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
+
+            mTriangleVertices.position(0);
+            GLES20.glVertexAttribPointer(maPositionHandle, 3, GLES20.GL_FLOAT, false, 20, mTriangleVertices);
+            GLES20.glEnableVertexAttribArray(maPositionHandle);
+
+            mTriangleVertices.position(3);
+            GLES20.glVertexAttribPointer(maTextureHandle, 2, GLES20.GL_FLOAT, false, 20, mTriangleVertices);
+            GLES20.glEnableVertexAttribArray(maTextureHandle);
+
+            GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, mSTMatrix, 0);
+
+            float[] mvpMatrix = new float[16];
+            android.opengl.Matrix.setIdentityM(mvpMatrix, 0);
+
+            float glPanX = config.panX / 500f;
+            float glPanY = -config.panY / 500f;
+
+            android.opengl.Matrix.translateM(mvpMatrix, 0, glPanX, glPanY, 0f);
+            float zoom = config.zoom / 100f;
+            android.opengl.Matrix.scaleM(mvpMatrix, 0, zoom, zoom, 1f);
+            android.opengl.Matrix.rotateM(mvpMatrix, 0, -config.rotation, 0f, 0f, 1f);
+            
+            float scaleX = 1f, scaleY = 1f;
+            int videoW = mMediaPlayer.getVideoWidth();
+            int videoH = mMediaPlayer.getVideoHeight();
+            
+            if (videoW > 0 && videoH > 0) {
+                float videoAspect = (float) videoW / videoH;
+                float viewAspect = (float) width[0] / height[0];
+
+                if ("STRETCH".equals(config.scaleMode)) {
+                    scaleX = 1f; scaleY = 1f;
+                } else if ("FIT".equals(config.scaleMode)) {
+                    if (videoAspect > viewAspect) { scaleY = viewAspect / videoAspect; } 
+                    else { scaleX = videoAspect / viewAspect; }
+                } else if ("FILL".equals(config.scaleMode)) {
+                    if (videoAspect > viewAspect) { scaleX = videoAspect / viewAspect; } 
+                    else { scaleY = viewAspect / videoAspect; }
+                }
+            }
+
+            android.opengl.Matrix.scaleM(mvpMatrix, 0, scaleX, scaleY, 1f);
+            GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mvpMatrix, 0);
+
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+        }
+
+        @Override
+        public void onFrameAvailable(SurfaceTexture surfaceTexture) {
+            synchronized (mFrameSyncObject) {
+                mFrameAvailable = true;
+                mFrameSyncObject.notifyAll();
+            }
+        }
+
+        public void release() {
+            mRunning = false;
+            interrupt();
+        }
+
+        private void initEGL() {
+            mEGLDisplay = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
+            int[] version = new int[2];
+            EGL14.eglInitialize(mEGLDisplay, version, 0, version, 1);
+
+            int[] attribList = {
+                    EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8,
+                    EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT, EGL14.EGL_NONE
+            };
+            EGLConfig[] configs = new EGLConfig[1];
+            int[] numConfigs = new int[1];
+            if (!EGL14.eglChooseConfig(mEGLDisplay, attribList, 0, configs, 0, configs.length, numConfigs, 0)) {
+                mRunning = false; return;
+            }
+            
+            int[] contextAttribs = { EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE };
+            mEGLContext = EGL14.eglCreateContext(mEGLDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0);
+
+            int[] surfaceAttribs = { EGL14.EGL_NONE };
+            try {
+                if (mOutputSurface == null || !mOutputSurface.isValid()) {
+                    mRunning = false; return;
+                }
+                mEGLSurface = EGL14.eglCreateWindowSurface(mEGLDisplay, configs[0], mOutputSurface, surfaceAttribs, 0);
+            } catch (Exception e) {
+                mRunning = false; return;
+            }
+            
+            if (mEGLSurface == null || mEGLSurface == EGL14.EGL_NO_SURFACE) {
+                mRunning = false; return;
+            }
+            EGL14.eglMakeCurrent(mEGLDisplay, mEGLSurface, mEGLSurface, mEGLContext);
+        }
+
+        private void initGL() {
+            int vertexShader = loadShader(GLES20.GL_VERTEX_SHADER, VERTEX_SHADER);
+            int fragmentShader = loadShader(GLES20.GL_FRAGMENT_SHADER, FRAGMENT_SHADER);
+
+            mProgram = GLES20.glCreateProgram();
+            GLES20.glAttachShader(mProgram, vertexShader);
+            GLES20.glAttachShader(mProgram, fragmentShader);
+            GLES20.glLinkProgram(mProgram);
+            
+            GLES20.glDisable(GLES20.GL_CULL_FACE);
+
+            int[] textures = new int[1];
+            GLES20.glGenTextures(1, textures, 0);
+            mTextureID = textures[0];
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
+            GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
+            GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        }
+
+        private int loadShader(int type, String shaderCode) {
+            int shader = GLES20.glCreateShader(type);
+            GLES20.glShaderSource(shader, shaderCode);
+            GLES20.glCompileShader(shader);
+            return shader;
+        }
+
+        private void releaseEGL() {
+            if (mEGLDisplay != EGL14.EGL_NO_DISPLAY) {
+                EGL14.eglMakeCurrent(mEGLDisplay, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT);
+                EGL14.eglDestroySurface(mEGLDisplay, mEGLSurface);
+                EGL14.eglDestroyContext(mEGLDisplay, mEGLContext);
+                EGL14.eglReleaseThread();
+                EGL14.eglTerminate(mEGLDisplay);
+            }
+            mEGLDisplay = EGL14.EGL_NO_DISPLAY;
+            mEGLContext = EGL14.EGL_NO_CONTEXT;
+            mEGLSurface = EGL14.EGL_NO_SURFACE;
+        }
     }
 }

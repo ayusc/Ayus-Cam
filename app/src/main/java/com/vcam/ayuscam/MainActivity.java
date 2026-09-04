@@ -129,11 +129,6 @@ public class MainActivity extends AppCompatActivity {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
                 permissionsNeeded.add(Manifest.permission.READ_EXTERNAL_STORAGE);
             }
-            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
-                    permissionsNeeded.add(Manifest.permission.WRITE_EXTERNAL_STORAGE);
-                }
-            }
         }
 
         if (!permissionsNeeded.isEmpty()) {
@@ -144,17 +139,5 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQ_CODE) {
-            boolean allGranted = true;
-            for (int res : grantResults) {
-                if (res != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
-            }
-            if (!allGranted) {
-                Toast.makeText(this, "Permissions are required for camera and media access.", Toast.LENGTH_SHORT).show();
-            }
-        }
     }
 }

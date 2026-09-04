@@ -10,6 +10,7 @@ import android.media.MediaFormat;
 import android.view.Surface;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -19,10 +20,13 @@ import de.robv.android.xposed.XposedBridge;
 public class VideoToFrames implements Runnable {
     private static final int COLOR_FormatI420 = 1;
     private static final int COLOR_FormatNV21 = 2;
+
     private final int decodeColorFormat = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible;
+
     private LinkedBlockingQueue<byte[]> mQueue;
     private OutputImageFormat outputImageFormat;
     private boolean stopDecode = false;
+
     private String videoFilePath;
     private Thread childThread;
     private Surface play_surf;
@@ -58,23 +62,28 @@ public class VideoToFrames implements Runnable {
         try {
             videoDecode(videoFilePath);
         } catch (Throwable t) {
-            XposedBridge.log("VideoToFrames Error - " + t.getMessage());
+            XposedBridge.log("AyusCam: VideoToFrames Error - " + t.getMessage());
         }
     }
 
     private void videoDecode(String videoFilePath) throws IOException {
         MediaExtractor extractor = null;
         MediaCodec decoder = null;
+        FileInputStream fis = null;
         try {
             File videoFile = new File(videoFilePath);
             if (!videoFile.exists()) return;
 
             extractor = new MediaExtractor();
-            extractor.setDataSource(videoFilePath);
+            
+            // BYPASS DAEMON PATH RESTRICTIONS WITH FILEDESCRIPTOR
+            fis = new FileInputStream(videoFile);
+            extractor.setDataSource(fis.getFD());
+            
             int trackIndex = selectTrack(extractor);
             if (trackIndex < 0) return;
-
             extractor.selectTrack(trackIndex);
+
             MediaFormat mediaFormat = extractor.getTrackFormat(trackIndex);
             String mime = mediaFormat.getString(MediaFormat.KEY_MIME);
             decoder = MediaCodec.createDecoderByType(mime);
@@ -88,9 +97,8 @@ public class VideoToFrames implements Runnable {
 
             while (!stopDecode) {
                 decodeFramesToImage(decoder, extractor);
-                
                 extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
-                decoder.flush(); 
+                decoder.flush();
             }
         } finally {
             if (decoder != null) {
@@ -98,6 +106,9 @@ public class VideoToFrames implements Runnable {
             }
             if (extractor != null) {
                 extractor.release();
+            }
+            if (fis != null) {
+                try { fis.close(); } catch (Exception ignored) {}
             }
         }
     }
@@ -132,6 +143,7 @@ public class VideoToFrames implements Runnable {
                     sawOutputEOS = true;
                 }
                 boolean doRender = (info.size != 0);
+
                 if (doRender) {
                     if (!is_first) {
                         startWhen = System.currentTimeMillis();
@@ -146,10 +158,9 @@ public class VideoToFrames implements Runnable {
                                 }
                                 image.close();
                             }
-                        } catch (Exception e) {
-                            XposedBridge.log("Failed to get Image buffer - " + e.getMessage());
-                        }
+                        } catch (Exception e) {}
                     }
+
                     long sleepTime = (info.presentationTimeUs / 1000) - (System.currentTimeMillis() - startWhen);
                     if (sleepTime > 0) {
                         try { Thread.sleep(sleepTime); } catch (InterruptedException ignored) {}
@@ -206,6 +217,7 @@ public class VideoToFrames implements Runnable {
             int shift = (i == 0) ? 0 : 1;
             int w = width >> shift;
             int h = height >> shift;
+
             buffer.position(rowStride * (crop.top >> shift) + pixelStride * (crop.left >> shift));
             for (int row = 0; row < h; row++) {
                 int length;
