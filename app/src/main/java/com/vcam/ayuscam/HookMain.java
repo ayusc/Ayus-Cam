@@ -63,7 +63,6 @@ public class HookMain implements IXposedHookLoadPackage {
     private static long lastCheckTime = 0;
 
     private static AppConfig getLiveConfig() {
-        // Cache for 500ms to avoid brutal disk I/O loops, allowing smooth Pan/Zoom syncing
         if (cachedConfig == null || (System.currentTimeMillis() - lastCheckTime > 500)) {
             cachedConfig = AppConfig.load(appContext);
             lastCheckTime = System.currentTimeMillis();

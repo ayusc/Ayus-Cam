@@ -12,10 +12,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class AppConfig {
-    // Hidden from user: UI saves files directly into its own private sandbox
     public static final String BASE_DIR = "/data/data/com.vcam.ayuscam/files/AyusCam/";
     public static final String CONFIG_FILE = BASE_DIR + "config.json";
     public static final String LOG_FILE = BASE_DIR + "daemon.log";
+
+    public static final String TMP_DIR = "/data/local/tmp/AyusCam/";
 
     public boolean enabled = true;
     public List<String> mediaPaths = new ArrayList<>();
@@ -32,9 +33,6 @@ public class AppConfig {
     public boolean showHud = false;
     public boolean disableToast = false;
     public boolean isPaused = false;
-
-    // Target Packages to inject into
-    public List<String> targetPackages = new ArrayList<>();
 
     public String getActiveMediaType() {
         if (selectedIndex >= 0 && selectedIndex < mediaTypes.size()) return mediaTypes.get(selectedIndex);
@@ -57,8 +55,7 @@ public class AppConfig {
         
         // 1. IF RUNNING INSIDE THE HOOK (e.g. inside WhatsApp)
         if (context != null && !context.getPackageName().equals("com.vcam.ayuscam")) {
-            File privDir = new File(context.getFilesDir(), "Camera1");
-            File privConfig = new File(privDir, "config.json");
+            File privConfig = new File(TMP_DIR, "config.json");
             
             if (privConfig.exists() && privConfig.canRead()) {
                 try (BufferedReader br = new BufferedReader(new FileReader(privConfig))) {
@@ -78,7 +75,7 @@ public class AppConfig {
                     
                     String mediaType = json.optString("activeMediaType", "VIDEO");
                     String ext = "IMAGE".equals(mediaType) ? ".jpg" : ".mp4";
-                    File targetMedia = new File(privDir, "virtual" + ext);
+                    File targetMedia = new File(TMP_DIR, "virtual" + ext);
                     
                     if (targetMedia.exists()) {
                         config.mediaPaths.add(targetMedia.getAbsolutePath());
@@ -125,13 +122,6 @@ public class AppConfig {
                         config.mediaNames.add(namesArr.getString(i));
                     }
                 }
-
-                JSONArray targetsArr = json.optJSONArray("targetPackages");
-                if (targetsArr != null) {
-                    for (int i = 0; i < targetsArr.length(); i++) {
-                        config.targetPackages.add(targetsArr.getString(i));
-                    }
-                }
             } catch (Exception e) { e.printStackTrace(); }
         }
         return config;
@@ -159,78 +149,38 @@ public class AppConfig {
             json.put("mediaPaths", new JSONArray(mediaPaths));
             json.put("mediaTypes", new JSONArray(mediaTypes));
             json.put("mediaNames", new JSONArray(mediaNames));
-            json.put("targetPackages", new JSONArray(targetPackages));
 
             writer.write(json.toString(4));
         } catch (Exception e) { e.printStackTrace(); }
         
-        syncConfigToTargets();
+        pushMediaToTmp();
     }
 
-    private void syncConfigToTargets() {
-        if (targetPackages.isEmpty()) return;
-        new Thread(() -> {
-            try {
-                Process p = Runtime.getRuntime().exec("su");
-                DataOutputStream os = new DataOutputStream(p.getOutputStream());
-                for (String pkg : targetPackages) {
-                    String targetDir = "/data/data/" + pkg + "/files/Camera1";
-                    os.writeBytes("mkdir -p " + targetDir + "\n");
-                    os.writeBytes("cp -f \"" + CONFIG_FILE + "\" \"" + targetDir + "/config.json\"\n");
-                    os.writeBytes("chmod 777 " + targetDir + "\n");
-                    os.writeBytes("chmod 777 " + targetDir + "/config.json\n");
-                }
-                os.writeBytes("exit\n");
-                os.flush();
-                p.waitFor();
-            } catch (Exception e) { e.printStackTrace(); }
-        }).start();
-    }
-
-    public void pushMediaToTargets() {
-        if (targetPackages.isEmpty() || getActiveMediaPath().isEmpty()) return;
+    public void pushMediaToTmp() {
         new Thread(() -> {
             try {
                 String ext = "IMAGE".equals(getActiveMediaType()) ? ".jpg" : ".mp4";
                 String mediaPath = getActiveMediaPath();
+                
                 Process p = Runtime.getRuntime().exec("su");
                 DataOutputStream os = new DataOutputStream(p.getOutputStream());
-                for (String pkg : targetPackages) {
-                    String targetDir = "/data/data/" + pkg + "/files/Camera1";
-                    String targetMedia = targetDir + "/virtual" + ext;
-                    os.writeBytes("mkdir -p " + targetDir + "\n");
-                    os.writeBytes("rm -f " + targetDir + "/virtual.*\n");
-                    os.writeBytes("cp -f \"" + mediaPath + "\" \"" + targetMedia + "\"\n");
-                    os.writeBytes("chmod 777 " + targetDir + "\n");
-                    os.writeBytes("chmod 777 " + targetMedia + "\n");
+                
+                os.writeBytes("mkdir -p " + TMP_DIR + "\n");
+                os.writeBytes("rm -f " + TMP_DIR + "virtual.*\n");
+                
+                if (!mediaPath.isEmpty()) {
+                    os.writeBytes("cp -f \"" + mediaPath + "\" \"" + TMP_DIR + "virtual" + ext + "\"\n");
                 }
+                os.writeBytes("cp -f \"" + CONFIG_FILE + "\" \"" + TMP_DIR + "config.json\"\n");
+                
+                os.writeBytes("chmod -R 777 " + TMP_DIR + "\n");
+                // Attempt to neutralize SELinux blocks
+                os.writeBytes("chcon -R u:object_r:app_data_file:s0 " + TMP_DIR + "\n");
+                
                 os.writeBytes("exit\n");
                 os.flush();
                 p.waitFor();
             } catch (Exception e) { e.printStackTrace(); }
         }).start();
-    }
-
-    public void addTargetPackage(String pkg) {
-        if (!targetPackages.contains(pkg)) {
-            targetPackages.add(pkg);
-            save();
-            pushMediaToTargets();
-        }
-    }
-    
-    public void removeTargetPackage(String pkg) {
-        if (targetPackages.contains(pkg)) {
-            targetPackages.remove(pkg);
-            save();
-            try {
-                Process p = Runtime.getRuntime().exec("su");
-                DataOutputStream os = new DataOutputStream(p.getOutputStream());
-                os.writeBytes("rm -rf /data/data/" + pkg + "/files/Camera1\n");
-                os.writeBytes("exit\n");
-                os.flush();
-                p.waitFor();
-            } catch (Exception e) {}
-        }
     }
 }

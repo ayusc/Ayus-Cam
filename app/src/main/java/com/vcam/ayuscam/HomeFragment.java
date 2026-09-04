@@ -19,7 +19,6 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -46,9 +45,9 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private TextureView previewTextureView;
     private ImageView previewImageView;
     private TextView tvPreviewStatus, tvEmptyMedia, tvBadgeDaemon, tvBadgePreviewState;
-    private MaterialButton btnTogglePreview, btnToggleVirtualCam, btnPickPhoto, btnPickVideo, btnAddTarget;
+    private MaterialButton btnTogglePreview, btnToggleVirtualCam, btnPickPhoto, btnPickVideo;
     private ImageButton btnRotateCamera;
-    private LinearLayout llMediaList, llPreviewOverlay, llTargetApps;
+    private LinearLayout llMediaList, llPreviewOverlay;
     private NestedScrollView scrollMediaList;
     private MediaPlayer mediaPlayer;
     private Camera mCamera;
@@ -84,9 +83,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         llMediaList = root.findViewById(R.id.ll_media_list);
         llPreviewOverlay = root.findViewById(R.id.ll_preview_status_overlay);
         scrollMediaList = root.findViewById(R.id.scroll_media_list);
-        
-        llTargetApps = root.findViewById(R.id.ll_target_apps);
-        btnAddTarget = root.findViewById(R.id.btn_add_target);
 
         previewTextureView.setSurfaceTextureListener(this);
 
@@ -134,29 +130,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
                         : Camera.CameraInfo.CAMERA_FACING_BACK;
                 restartPreviewMode();
             }
-        });
-
-        btnAddTarget.setOnClickListener(v -> {
-            EditText input = new EditText(requireContext());
-            input.setHint("e.g. com.whatsapp");
-            input.setTextColor(Color.WHITE);
-            input.setHintTextColor(Color.GRAY);
-            input.setPadding(40, 40, 40, 40);
-
-            new androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.Theme_AppCompat_Dialog_Alert)
-                .setTitle("Add Target Package")
-                .setMessage("Enter the exact package name to secretly inject files into via Root.")
-                .setView(input)
-                .setPositiveButton("Inject", (dialog, which) -> {
-                    String pkg = input.getText().toString().trim();
-                    if (!pkg.isEmpty()) {
-                        config.addTargetPackage(pkg);
-                        renderTargetAppsList(llTargetApps);
-                        Toast.makeText(requireContext(), "Injected into " + pkg, Toast.LENGTH_SHORT).show();
-                    }
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
         });
 
         updateUI();
@@ -208,42 +181,14 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             config.mediaTypes.add(type);
             config.mediaNames.add(displayName);
             config.selectedIndex = config.mediaPaths.size() - 1;
+            
+            // Save automatically pushes everything to the root /tmp folder
             config.save();
-            config.pushMediaToTargets(); // Syncs to targets via root
             
             updateUI();
             restartPreviewMode();
         } catch (Exception e) {
             Toast.makeText(requireContext(), "Failed to load file: " + e.getMessage(), Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    private void renderTargetAppsList(LinearLayout container) {
-        container.removeAllViews();
-        for (String pkg : config.targetPackages) {
-            LinearLayout row = new LinearLayout(requireContext());
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, 16, 0, 16);
-
-            TextView tv = new TextView(requireContext());
-            tv.setText(pkg);
-            tv.setTextColor(Color.WHITE);
-            tv.setTextSize(14f);
-            tv.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
-            row.addView(tv);
-
-            ImageButton btnDelete = new ImageButton(requireContext());
-            btnDelete.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
-            btnDelete.setBackgroundColor(Color.TRANSPARENT);
-            btnDelete.setColorFilter(0xFFFF2A42);
-            btnDelete.setOnClickListener(v -> {
-                config.removeTargetPackage(pkg);
-                renderTargetAppsList(container);
-            });
-            row.addView(btnDelete);
-
-            container.addView(row);
         }
     }
 
@@ -273,7 +218,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         }
 
         renderMediaList();
-        renderTargetAppsList(llTargetApps);
     }
 
     private void renderMediaList() {
@@ -344,7 +288,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             row.setOnClickListener(v -> {
                 config.selectedIndex = index;
                 config.save();
-                config.pushMediaToTargets();
                 updateUI();
                 restartPreviewMode();
             });
@@ -362,7 +305,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
                     config.selectedIndex--;
                 }
                 config.save();
-                config.pushMediaToTargets();
                 updateUI();
                 restartPreviewMode();
             });

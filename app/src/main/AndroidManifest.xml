@@ -8,8 +8,8 @@
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <!-- Added permission for the floating window -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.ACCESS_SUPERUSER" />
 
     <application
         android:allowBackup="true"
@@ -31,7 +31,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Register the new Floating Window Service -->
         <service 
             android:name=".FloatingWindowService" 
             android:enabled="true" 
@@ -42,7 +41,7 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="AyusCam Virtual Camera Module" />
+            android:value="An undetected virtual camera for Android 10+" />
         <meta-data
             android:name="xposedminversion"
             android:value="51" />
