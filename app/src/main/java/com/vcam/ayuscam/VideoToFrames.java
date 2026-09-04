@@ -20,13 +20,10 @@ import de.robv.android.xposed.XposedBridge;
 public class VideoToFrames implements Runnable {
     private static final int COLOR_FormatI420 = 1;
     private static final int COLOR_FormatNV21 = 2;
-
     private final int decodeColorFormat = MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible;
-
     private LinkedBlockingQueue<byte[]> mQueue;
     private OutputImageFormat outputImageFormat;
-    private boolean stopDecode = false;
-
+    private volatile boolean stopDecode = false;
     private String videoFilePath;
     private Thread childThread;
     private Surface play_surf;
@@ -47,14 +44,17 @@ public class VideoToFrames implements Runnable {
 
     public void stopDecode() {
         stopDecode = true;
+        if (childThread != null) {
+            childThread.interrupt();
+            childThread = null;
+        }
     }
 
     public void decode(String videoFilePath) {
         this.videoFilePath = videoFilePath;
-        if (childThread == null) {
-            childThread = new Thread(this, "decode");
-            childThread.start();
-        }
+        this.stopDecode = false;
+        childThread = new Thread(this, "decode_" + System.currentTimeMillis());
+        childThread.start();
     }
 
     @Override
@@ -73,28 +73,25 @@ public class VideoToFrames implements Runnable {
         try {
             File videoFile = new File(videoFilePath);
             if (!videoFile.exists()) return;
-
             extractor = new MediaExtractor();
-            
-            // BYPASS DAEMON PATH RESTRICTIONS WITH FILEDESCRIPTOR
+
             fis = new FileInputStream(videoFile);
             extractor.setDataSource(fis.getFD());
-            
+
             int trackIndex = selectTrack(extractor);
             if (trackIndex < 0) return;
             extractor.selectTrack(trackIndex);
-
             MediaFormat mediaFormat = extractor.getTrackFormat(trackIndex);
             String mime = mediaFormat.getString(MediaFormat.KEY_MIME);
             decoder = MediaCodec.createDecoderByType(mime);
 
-            if (isColorFormatSupported(decodeColorFormat, decoder.getCodecInfo().getCapabilitiesForType(mime))) {
+            // Only set buffer color format if decoding to memory without a hardware surface
+            if (play_surf == null && isColorFormatSupported(decodeColorFormat, decoder.getCodecInfo().getCapabilitiesForType(mime))) {
                 mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, decodeColorFormat);
             }
 
             decoder.configure(mediaFormat, play_surf, null, 0);
             decoder.start();
-
             while (!stopDecode) {
                 decodeFramesToImage(decoder, extractor);
                 extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
@@ -105,7 +102,7 @@ public class VideoToFrames implements Runnable {
                 try { decoder.stop(); decoder.release(); } catch (Exception ignored) {}
             }
             if (extractor != null) {
-                extractor.release();
+                try { extractor.release(); } catch (Exception ignored) {}
             }
             if (fis != null) {
                 try { fis.close(); } catch (Exception ignored) {}
@@ -119,7 +116,6 @@ public class VideoToFrames implements Runnable {
         long startWhen = 0;
         boolean is_first = false;
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-
         while (!sawOutputEOS && !stopDecode) {
             if (!sawInputEOS) {
                 int inputBufferId = decoder.dequeueInputBuffer(10000);
@@ -136,14 +132,12 @@ public class VideoToFrames implements Runnable {
                     }
                 }
             }
-
             int outputBufferId = decoder.dequeueOutputBuffer(info, 10000);
             if (outputBufferId >= 0) {
                 if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                     sawOutputEOS = true;
                 }
                 boolean doRender = (info.size != 0);
-
                 if (doRender) {
                     if (!is_first) {
                         startWhen = System.currentTimeMillis();
@@ -158,9 +152,8 @@ public class VideoToFrames implements Runnable {
                                 }
                                 image.close();
                             }
-                        } catch (Exception e) {}
+                        } catch (Exception ignored) {}
                     }
-
                     long sleepTime = (info.presentationTimeUs / 1000) - (System.currentTimeMillis() - startWhen);
                     if (sleepTime > 0) {
                         try { Thread.sleep(sleepTime); } catch (InterruptedException ignored) {}
@@ -198,7 +191,6 @@ public class VideoToFrames implements Runnable {
         byte[] rowData = new byte[planes[0].getRowStride()];
         int channelOffset = 0;
         int outputStride = 1;
-
         for (int i = 0; i < planes.length; i++) {
             switch (i) {
                 case 0: channelOffset = 0; outputStride = 1; break;
@@ -217,7 +209,6 @@ public class VideoToFrames implements Runnable {
             int shift = (i == 0) ? 0 : 1;
             int w = width >> shift;
             int h = height >> shift;
-
             buffer.position(rowStride * (crop.top >> shift) + pixelStride * (crop.left >> shift));
             for (int row = 0; row < h; row++) {
                 int length;
