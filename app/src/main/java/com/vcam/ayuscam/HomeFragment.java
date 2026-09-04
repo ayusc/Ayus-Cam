@@ -19,6 +19,7 @@ import android.view.Surface;
 import android.view.TextureView;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -41,16 +42,14 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 public class HomeFragment extends Fragment implements TextureView.SurfaceTextureListener {
-
     private AppConfig config;
     private TextureView previewTextureView;
     private ImageView previewImageView;
     private TextView tvPreviewStatus, tvEmptyMedia, tvBadgeDaemon, tvBadgePreviewState;
-    private MaterialButton btnTogglePreview, btnToggleVirtualCam, btnPickPhoto, btnPickVideo;
+    private MaterialButton btnTogglePreview, btnToggleVirtualCam, btnPickPhoto, btnPickVideo, btnAddTarget;
     private ImageButton btnRotateCamera;
-    private LinearLayout llMediaList, llPreviewOverlay;
+    private LinearLayout llMediaList, llPreviewOverlay, llTargetApps;
     private NestedScrollView scrollMediaList;
-
     private MediaPlayer mediaPlayer;
     private Camera mCamera;
     private int currentCameraId = Camera.CameraInfo.CAMERA_FACING_BACK;
@@ -85,10 +84,12 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         llMediaList = root.findViewById(R.id.ll_media_list);
         llPreviewOverlay = root.findViewById(R.id.ll_preview_status_overlay);
         scrollMediaList = root.findViewById(R.id.scroll_media_list);
+        
+        llTargetApps = root.findViewById(R.id.ll_target_apps);
+        btnAddTarget = root.findViewById(R.id.btn_add_target);
 
         previewTextureView.setSurfaceTextureListener(this);
 
-        // Prevents the parent ScrollView from stealing touch/scroll events
         if (scrollMediaList != null) {
             scrollMediaList.setVerticalScrollBarEnabled(true);
             scrollMediaList.setOnTouchListener((v, event) -> {
@@ -135,6 +136,29 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             }
         });
 
+        btnAddTarget.setOnClickListener(v -> {
+            EditText input = new EditText(requireContext());
+            input.setHint("e.g. com.whatsapp");
+            input.setTextColor(Color.WHITE);
+            input.setHintTextColor(Color.GRAY);
+            input.setPadding(40, 40, 40, 40);
+
+            new androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.Theme_AppCompat_Dialog_Alert)
+                .setTitle("Add Target Package")
+                .setMessage("Enter the exact package name to secretly inject files into via Root.")
+                .setView(input)
+                .setPositiveButton("Inject", (dialog, which) -> {
+                    String pkg = input.getText().toString().trim();
+                    if (!pkg.isEmpty()) {
+                        config.addTargetPackage(pkg);
+                        renderTargetAppsList(llTargetApps);
+                        Toast.makeText(requireContext(), "Injected into " + pkg, Toast.LENGTH_SHORT).show();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+        });
+
         updateUI();
         restartPreviewMode();
         return root;
@@ -158,6 +182,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private void handleMediaResult(Uri uri, String type) {
         if (uri == null) return;
         String displayName = "media_" + System.currentTimeMillis();
+
         try (Cursor cursor = requireContext().getContentResolver().query(uri, null, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
@@ -168,9 +193,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         File targetDir = new File(AppConfig.BASE_DIR);
         if (!targetDir.exists()) {
             targetDir.mkdirs();
-            targetDir.setReadable(true, false);
-            targetDir.setWritable(true, false);
-            targetDir.setExecutable(true, false);
         }
 
         String ext = "IMAGE".equals(type) ? ".jpg" : ".mp4";
@@ -180,18 +202,15 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
              OutputStream out = new FileOutputStream(localFile)) {
             byte[] buf = new byte[8192];
             int len;
-            while ((len = in.read(buf)) > 0) {
-                out.write(buf, 0, len);
-            }
-            localFile.setReadable(true, false);
-            localFile.setWritable(true, false);
-
+            while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+            
             config.mediaPaths.add(localFile.getAbsolutePath());
             config.mediaTypes.add(type);
             config.mediaNames.add(displayName);
             config.selectedIndex = config.mediaPaths.size() - 1;
             config.save();
-
+            config.pushMediaToTargets(); // Syncs to targets via root
+            
             updateUI();
             restartPreviewMode();
         } catch (Exception e) {
@@ -199,8 +218,38 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         }
     }
 
+    private void renderTargetAppsList(LinearLayout container) {
+        container.removeAllViews();
+        for (String pkg : config.targetPackages) {
+            LinearLayout row = new LinearLayout(requireContext());
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, 16, 0, 16);
+
+            TextView tv = new TextView(requireContext());
+            tv.setText(pkg);
+            tv.setTextColor(Color.WHITE);
+            tv.setTextSize(14f);
+            tv.setLayoutParams(new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            row.addView(tv);
+
+            ImageButton btnDelete = new ImageButton(requireContext());
+            btnDelete.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+            btnDelete.setBackgroundColor(Color.TRANSPARENT);
+            btnDelete.setColorFilter(0xFFFF2A42);
+            btnDelete.setOnClickListener(v -> {
+                config.removeTargetPackage(pkg);
+                renderTargetAppsList(container);
+            });
+            row.addView(btnDelete);
+
+            container.addView(row);
+        }
+    }
+
     private void updateUI() {
         boolean isActive = config.enabled && new File(config.getActiveMediaPath()).exists();
+
         if (isActive) {
             tvBadgeDaemon.setText("  ACTIVE");
             tvBadgeDaemon.setTextColor(0xFF00E676);
@@ -222,16 +271,16 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             tvBadgePreviewState.setTextColor(0xFF8A909E);
             llPreviewOverlay.setVisibility(View.VISIBLE);
         }
+
         renderMediaList();
+        renderTargetAppsList(llTargetApps);
     }
 
     private void renderMediaList() {
         llMediaList.removeAllViews();
-        
         float density = getResources().getDisplayMetrics().density;
         int singleRowHeight = (int) (54 * density);
 
-        // Limit container height to 3 items when there are more than 3
         if (scrollMediaList != null) {
             ViewGroup.LayoutParams lp = scrollMediaList.getLayoutParams();
             if (config.mediaPaths.size() > 3) {
@@ -250,24 +299,18 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         for (int i = 0; i < config.mediaPaths.size(); i++) {
             final int index = i;
             RelativeLayout row = new RelativeLayout(requireContext());
-            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, singleRowHeight);
+            LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, singleRowHeight);
             row.setLayoutParams(rowLp);
             row.setPadding(24, 0, 24, 0);
             row.setGravity(Gravity.CENTER_VERTICAL);
 
-            if (config.selectedIndex == index) {
-                row.setBackgroundColor(0x3300E676);
-            } else {
-                row.setBackgroundColor(Color.TRANSPARENT);
-            }
+            if (config.selectedIndex == index) row.setBackgroundColor(0x3300E676);
+            else row.setBackgroundColor(Color.TRANSPARENT);
 
             LinearLayout leftContainer = new LinearLayout(requireContext());
             leftContainer.setOrientation(LinearLayout.HORIZONTAL);
             leftContainer.setGravity(Gravity.CENTER_VERTICAL);
-
-            RelativeLayout.LayoutParams lpLeft = new RelativeLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            RelativeLayout.LayoutParams lpLeft = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lpLeft.addRule(RelativeLayout.ALIGN_PARENT_START);
             lpLeft.addRule(RelativeLayout.START_OF, 1000 + index);
 
@@ -286,7 +329,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             title.setTextSize(14f);
             title.setSingleLine(true);
             leftContainer.addView(title);
-
             row.addView(leftContainer, lpLeft);
 
             ImageButton btnDelete = new ImageButton(requireContext());
@@ -294,7 +336,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             btnDelete.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
             btnDelete.setColorFilter(0xFFFF2A42);
             btnDelete.setBackgroundColor(Color.TRANSPARENT);
-
             RelativeLayout.LayoutParams lpRight = new RelativeLayout.LayoutParams(48, 48);
             lpRight.addRule(RelativeLayout.ALIGN_PARENT_END);
             lpRight.addRule(RelativeLayout.CENTER_VERTICAL);
@@ -303,6 +344,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             row.setOnClickListener(v -> {
                 config.selectedIndex = index;
                 config.save();
+                config.pushMediaToTargets();
                 updateUI();
                 restartPreviewMode();
             });
@@ -310,7 +352,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             btnDelete.setOnClickListener(v -> {
                 File f = new File(config.mediaPaths.get(index));
                 if (f.exists()) f.delete();
-
                 config.mediaPaths.remove(index);
                 config.mediaNames.remove(index);
                 config.mediaTypes.remove(index);
@@ -321,6 +362,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
                     config.selectedIndex--;
                 }
                 config.save();
+                config.pushMediaToTargets();
                 updateUI();
                 restartPreviewMode();
             });
@@ -341,10 +383,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private void startVirtualPreview() {
         File file = new File(config.getActiveMediaPath());
-        if (!file.exists()) {
-            Toast.makeText(requireContext(), "Selected file not found", Toast.LENGTH_SHORT).show();
-            return;
-        }
+        if (!file.exists()) return;
 
         if ("IMAGE".equals(config.getActiveMediaType())) {
             previewTextureView.setVisibility(View.GONE);
@@ -432,7 +471,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } catch (Exception ignored) {}
             mediaPlayer = null;
         }
-
         if (mCamera != null) {
             try {
                 mCamera.stopPreview();
@@ -440,7 +478,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } catch (Exception ignored) {}
             mCamera = null;
         }
-
         if (previewImageView != null) {
             previewImageView.setVisibility(View.GONE);
         }
