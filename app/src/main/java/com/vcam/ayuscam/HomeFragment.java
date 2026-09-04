@@ -27,6 +27,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -43,7 +44,6 @@ import java.io.OutputStream;
 public class HomeFragment extends Fragment implements TextureView.SurfaceTextureListener {
 
     private AppConfig config;
-
     private TextureView previewTextureView;
     private ImageView previewImageView;
     private TextView tvPreviewStatus, tvEmptyMedia, tvBadgeDaemon, tvBadgePreviewState;
@@ -51,25 +51,23 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private ImageButton btnRotateCamera;
     private LinearLayout llMediaList, llPreviewOverlay;
     private NestedScrollView scrollMediaList;
-
     private MediaPlayer mediaPlayer;
     private Camera mCamera;
     private int currentCameraId = Camera.CameraInfo.CAMERA_FACING_BACK;
-    
+
     private static boolean isPreviewRunning = false;
 
-    private final ActivityResultLauncher<String[]> pickPhotoLauncher = registerForActivityResult(
-            new ActivityResultContracts.OpenDocument(), uri -> handleMediaResult(uri, "IMAGE"));
+    private final ActivityResultLauncher<PickVisualMediaRequest> pickPhotoLauncher = registerForActivityResult(
+            new ActivityResultContracts.PickVisualMedia(), uri -> handleMediaResult(uri, "IMAGE"));
             
-    private final ActivityResultLauncher<String[]> pickVideoLauncher = registerForActivityResult(
-            new ActivityResultContracts.OpenDocument(), uri -> handleMediaResult(uri, "VIDEO"));
+    private final ActivityResultLauncher<PickVisualMediaRequest> pickVideoLauncher = registerForActivityResult(
+            new ActivityResultContracts.PickVisualMedia(), uri -> handleMediaResult(uri, "VIDEO"));
 
     @SuppressLint("ClickableViewAccessibility")
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View root = inflater.inflate(R.layout.fragment_home, container, false);
-
         config = AppConfig.load();
         
         previewTextureView = root.findViewById(R.id.preview_texture_view);
@@ -84,7 +82,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         btnPickPhoto = root.findViewById(R.id.btn_pick_photo);
         btnPickVideo = root.findViewById(R.id.btn_pick_video);
         btnRotateCamera = root.findViewById(R.id.btn_rotate_camera);
-
         llMediaList = root.findViewById(R.id.ll_media_list);
         llPreviewOverlay = root.findViewById(R.id.ll_preview_status_overlay);
         scrollMediaList = root.findViewById(R.id.scroll_media_list);
@@ -105,8 +102,17 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             });
         }
 
-        btnPickPhoto.setOnClickListener(v -> pickPhotoLauncher.launch(new String[]{"image/*"}));
-        btnPickVideo.setOnClickListener(v -> pickVideoLauncher.launch(new String[]{"video/*"}));
+        btnPickPhoto.setOnClickListener(v -> pickPhotoLauncher.launch(
+                new PickVisualMediaRequest.Builder()
+                        .setMediaType(ActivityResultContracts.PickVisualMedia.ImageOnly.INSTANCE)
+                        .build()
+        ));
+
+        btnPickVideo.setOnClickListener(v -> pickVideoLauncher.launch(
+                new PickVisualMediaRequest.Builder()
+                        .setMediaType(ActivityResultContracts.PickVisualMedia.VideoOnly.INSTANCE)
+                        .build()
+        ));
 
         btnToggleVirtualCam.setOnClickListener(v -> {
             config.enabled = !config.enabled;
@@ -160,6 +166,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private void handleMediaResult(Uri uri, String type) {
         if (uri == null) return;
+
         String displayName = "media_" + System.currentTimeMillis();
         
         try (Cursor cursor = requireContext().getContentResolver().query(uri, null, null, null, null)) {
@@ -177,7 +184,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         
         try (InputStream in = requireContext().getContentResolver().openInputStream(uri);
              OutputStream out = new FileOutputStream(localFile)) {
-            
+             
             byte[] buf = new byte[8192];
             int len;
             while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
@@ -187,7 +194,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             config.mediaNames.add(displayName);
             config.selectedIndex = config.mediaPaths.size() - 1;
             
-            // This now saves directly to /sdcard/DCIM/Camera1/
             config.save();
             
             updateUI();
@@ -227,6 +233,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private void renderMediaList() {
         llMediaList.removeAllViews();
+
         float density = getResources().getDisplayMetrics().density;
         int singleRowHeight = (int) (54 * density);
 
@@ -247,6 +254,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
         for (int i = 0; i < config.mediaPaths.size(); i++) {
             final int index = i;
+
             RelativeLayout row = new RelativeLayout(requireContext());
             LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, singleRowHeight);
             row.setLayoutParams(rowLp);
@@ -286,7 +294,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             btnDelete.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
             btnDelete.setColorFilter(0xFFFF2A42);
             btnDelete.setBackgroundColor(Color.TRANSPARENT);
-
             RelativeLayout.LayoutParams lpRight = new RelativeLayout.LayoutParams(48, 48);
             lpRight.addRule(RelativeLayout.ALIGN_PARENT_END);
             lpRight.addRule(RelativeLayout.CENTER_VERTICAL);
@@ -349,11 +356,9 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
                 bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), m, true);
             }
             previewImageView.setImageBitmap(bitmap);
-
         } else {
             previewImageView.setVisibility(View.GONE);
             previewTextureView.setVisibility(View.VISIBLE);
-
             if (previewTextureView.isAvailable()) {
                 playVideoPreview(previewTextureView.getSurfaceTexture());
             }
@@ -363,7 +368,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private void startRealCameraPreview() {
         previewImageView.setVisibility(View.GONE);
         previewTextureView.setVisibility(View.VISIBLE);
-
         if (previewTextureView.isAvailable()) {
             openPhysicalCamera(previewTextureView.getSurfaceTexture());
         }
@@ -391,8 +395,8 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } else { 
                 result = (info.orientation - degrees + 360) % 360;
             }
-            mCamera.setDisplayOrientation(result);
 
+            mCamera.setDisplayOrientation(result);
             mCamera.setPreviewTexture(surfaceTexture);
             mCamera.startPreview();
         } catch (Exception e) {
@@ -427,7 +431,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } catch (Exception ignored) {}
             mediaPlayer = null;
         }
-
         if (mCamera != null) {
             try {
                 mCamera.stopPreview();
@@ -435,7 +438,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } catch (Exception ignored) {}
             mCamera = null;
         }
-
         if (previewImageView != null) {
             previewImageView.setVisibility(View.GONE);
         }

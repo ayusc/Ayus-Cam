@@ -6,7 +6,6 @@
     <string name="nav_control">Control</string>
     <string name="nav_status">Status</string>
     
-    <!-- Home Tab -->
     <string name="live_preview_disabled">Live Preview Disabled</string>
     <string name="enable_preview">Enable Preview</string>
     <string name="disable_preview">Disable Preview</string>
@@ -18,7 +17,6 @@
     <string name="add_video">+ Select Video</string>
     <string name="no_media_added">No media added yet</string>
 
-    <!-- Control Tab -->
     <string name="control_center">Control Panel</string>
     <string name="control_center_desc">You can control the live camera output from here</string>
     <string name="rotation">Rotation</string>
@@ -28,7 +26,6 @@
     <string name="pan">Pan</string>
     <string name="quick_tools">Quick Tools &amp; Floating Overlay</string>
     
-    <!-- Changed text for the floating window -->
     <string name="show_floating_hud">Show Floating Window</string>
     
     <string name="aspect_ratio">Aspect Ratio</string>
@@ -36,7 +33,6 @@
     <string name="stretch">Stretch</string>
     <string name="fill">Fill</string>
     
-    <!-- Status Tab -->
     <string name="daemon_status">Daemon Status</string>
     <string name="state">State</string>
     <string name="socket">Socket</string>
