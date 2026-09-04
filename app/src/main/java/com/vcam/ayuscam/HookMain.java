@@ -81,7 +81,8 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private static AppConfig getLiveConfig() {
         if (cachedConfig == null || (System.currentTimeMillis() - lastCheckTime > 500)) {
-            cachedConfig = AppConfig.load(appContext);
+            // FIXED: Decouple from appContext to prevent race conditions during early camera initialization
+            cachedConfig = AppConfig.loadForHook();
             lastCheckTime = System.currentTimeMillis();
         }
         return cachedConfig;
@@ -92,8 +93,15 @@ public class HookMain implements IXposedHookLoadPackage {
         if (!config.enabled) return false;
         String path = config.getActiveMediaPath();
         if (path == null || path.trim().isEmpty()) return false;
-        File file = new File(path);
-        return file.exists() && file.canRead();
+        
+        try {
+            // FIXED: Bypass File.exists() and File.canRead() which fail SELinux checks on untrusted apps
+            FileInputStream fis = new FileInputStream(path);
+            fis.close();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private static void recreateFakeSurface() {
@@ -469,8 +477,6 @@ public class HookMain implements IXposedHookLoadPackage {
                                     originalConfig.getExecutor(),
                                     originalConfig.getStateCallback()
                             );
-                            // CRITICAL FIX: Do NOT copy session parameters here to avoid HAL rejection
-                            fakeConfig.setSessionParameters(originalConfig.getSessionParameters()); // <- Actually this line is removed in code below:
                             
                             SessionConfiguration safeFakeConfig = new SessionConfiguration(
                                     originalConfig.getSessionType(),
@@ -543,7 +549,6 @@ public class HookMain implements IXposedHookLoadPackage {
                                 if (activeBitmap == null || !loadedPath.equals(targetPath)) {
                                     if (activeBitmap != null) activeBitmap.recycle();
                                     
-                                    // Bypasses Daemon Path Block via FileDescriptor
                                     FileInputStream fis = new FileInputStream(targetPath);
                                     activeBitmap = BitmapFactory.decodeStream(fis);
                                     fis.close();
@@ -692,7 +697,6 @@ public class HookMain implements IXposedHookLoadPackage {
             try {
                 mMediaPlayer.setSurface(mInputSurface);
                 
-                // BYPASS MEDIASERVER DAEMON PATH BLOCK VIA FILEDESCRIPTOR
                 FileInputStream fis = new FileInputStream(mVideoPath);
                 mMediaPlayer.setDataSource(fis.getFD());
                 fis.close();

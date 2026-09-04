@@ -6,8 +6,10 @@ import org.json.JSONObject;
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -16,13 +18,12 @@ public class AppConfig {
     public static final String CONFIG_FILE = BASE_DIR + "config.json";
     public static final String LOG_FILE = BASE_DIR + "daemon.log";
     public static final String TMP_DIR = "/data/local/tmp/AyusCam/";
-
+    
     public boolean enabled = true;
     public List<String> mediaPaths = new ArrayList<>();
     public List<String> mediaTypes = new ArrayList<>();
     public List<String> mediaNames = new ArrayList<>();
     public int selectedIndex = 0;
-
     public int rotation = 0;
     public int zoom = 100;
     public int volume = 0;
@@ -32,64 +33,73 @@ public class AppConfig {
     public boolean showHud = false;
     public boolean disableToast = false;
     public boolean isPaused = false;
-
+    
     public String getActiveMediaType() {
         if (selectedIndex >= 0 && selectedIndex < mediaTypes.size()) return mediaTypes.get(selectedIndex);
         if (!mediaTypes.isEmpty()) return mediaTypes.get(0);
         return "VIDEO";
     }
-
+    
     public String getActiveMediaPath() {
         if (selectedIndex >= 0 && selectedIndex < mediaPaths.size()) return mediaPaths.get(selectedIndex);
         if (!mediaPaths.isEmpty()) return mediaPaths.get(0);
         return "";
     }
-
+    
     public static AppConfig load() {
         return load(null);
     }
-
+    
+    // Dedicated loader for HookMain to avoid appContext race conditions
+    public static AppConfig loadForHook() {
+        AppConfig config = new AppConfig();
+        File privConfig = new File(TMP_DIR, "config.json");
+        
+        // Bypass SELinux strict mode on standard file APIs using direct streams
+        try (FileInputStream fis = new FileInputStream(privConfig);
+             BufferedReader br = new BufferedReader(new InputStreamReader(fis))) {
+             
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = br.readLine()) != null) sb.append(line);
+            JSONObject json = new JSONObject(sb.toString());
+            
+            config.enabled = json.optBoolean("enabled", true);
+            config.rotation = json.optInt("rotation", 0);
+            config.zoom = json.optInt("zoom", 100);
+            config.volume = json.optInt("volume", 0);
+            config.panX = json.optInt("panX", 0);
+            config.panY = json.optInt("panY", 0);
+            config.scaleMode = json.optString("scaleMode", "FILL");
+            config.isPaused = json.optBoolean("isPaused", false);
+            
+            String mediaType = json.optString("activeMediaType", "VIDEO");
+            String ext = "IMAGE".equals(mediaType) ? ".jpg" : ".mp4";
+            File targetMedia = new File(TMP_DIR, "virtual" + ext);
+            
+            try {
+                FileInputStream mediaFis = new FileInputStream(targetMedia);
+                mediaFis.close();
+                config.mediaPaths.add(targetMedia.getAbsolutePath());
+                config.mediaTypes.add(mediaType);
+                config.selectedIndex = 0;
+            } catch (Exception e) {
+                config.enabled = false;
+            }
+        } catch (Exception e) {
+            config.enabled = false;
+        }
+        return config;
+    }
+    
     public static AppConfig load(Context context) {
         AppConfig config = new AppConfig();
         
         // 1. IF RUNNING INSIDE THE HOOK (e.g. inside WhatsApp)
         if (context != null && !context.getPackageName().equals("com.vcam.ayuscam")) {
-            File privConfig = new File(TMP_DIR, "config.json");
-            
-            if (privConfig.exists() && privConfig.canRead()) {
-                try (BufferedReader br = new BufferedReader(new FileReader(privConfig))) {
-                    StringBuilder sb = new StringBuilder();
-                    String line;
-                    while ((line = br.readLine()) != null) sb.append(line);
-                    JSONObject json = new JSONObject(sb.toString());
-                    
-                    config.enabled = json.optBoolean("enabled", true);
-                    config.rotation = json.optInt("rotation", 0);
-                    config.zoom = json.optInt("zoom", 100);
-                    config.volume = json.optInt("volume", 0);
-                    config.panX = json.optInt("panX", 0);
-                    config.panY = json.optInt("panY", 0);
-                    config.scaleMode = json.optString("scaleMode", "FILL");
-                    config.isPaused = json.optBoolean("isPaused", false);
-                    
-                    String mediaType = json.optString("activeMediaType", "VIDEO");
-                    String ext = "IMAGE".equals(mediaType) ? ".jpg" : ".mp4";
-                    File targetMedia = new File(TMP_DIR, "virtual" + ext);
-                    
-                    if (targetMedia.exists()) {
-                        config.mediaPaths.add(targetMedia.getAbsolutePath());
-                        config.mediaTypes.add(mediaType);
-                        config.selectedIndex = 0;
-                    } else {
-                        config.enabled = false;
-                    }
-                } catch (Exception e) { e.printStackTrace(); }
-            } else {
-                config.enabled = false;
-            }
-            return config;
+            return loadForHook();
         }
-
+        
         // 2. IF RUNNING INSIDE THE UI APP
         File globalFile = new File(CONFIG_FILE);
         if (globalFile.exists() && globalFile.canRead()) {
@@ -110,7 +120,7 @@ public class AppConfig {
                 config.showHud = json.optBoolean("showHud", false);
                 config.disableToast = json.optBoolean("disableToast", false);
                 config.isPaused = json.optBoolean("isPaused", false);
-
+                
                 JSONArray pathsArr = json.optJSONArray("mediaPaths");
                 JSONArray typesArr = json.optJSONArray("mediaTypes");
                 JSONArray namesArr = json.optJSONArray("mediaNames");
@@ -125,11 +135,10 @@ public class AppConfig {
         }
         return config;
     }
-
+    
     public void save() {
         File dir = new File(BASE_DIR);
         if (!dir.exists()) dir.mkdirs();
-
         try (FileWriter writer = new FileWriter(CONFIG_FILE)) {
             JSONObject json = new JSONObject();
             json.put("enabled", enabled);
@@ -144,17 +153,15 @@ public class AppConfig {
             json.put("disableToast", disableToast);
             json.put("isPaused", isPaused);
             json.put("activeMediaType", getActiveMediaType());
-
             json.put("mediaPaths", new JSONArray(mediaPaths));
             json.put("mediaTypes", new JSONArray(mediaTypes));
             json.put("mediaNames", new JSONArray(mediaNames));
-
             writer.write(json.toString(4));
         } catch (Exception e) { e.printStackTrace(); }
         
         pushMediaToTmp();
     }
-
+    
     public void pushMediaToTmp() {
         new Thread(() -> {
             try {
