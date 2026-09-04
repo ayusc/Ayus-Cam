@@ -229,17 +229,19 @@ public class AppConfig {
                 }
                 os.writeBytes("chmod -R 777 " + BASE_DIR + "\n");
 
-                os.writeBytes("for d in /storage/emulated/0/Android/data/*/files/Camera1; do\n");
-                os.writeBytes("  if [ -d \"$d\" ]; then\n");
-                os.writeBytes("    cp -f " + BASE_DIR + "config.json \"$d/config.json\" 2>/dev/null\n");
-                os.writeBytes("    rm -f \"$d/virtual.*\" 2>/dev/null\n");
+                // Ensure private folders exist for all installed apps and sync files
+                os.writeBytes("for p in /storage/emulated/0/Android/data/*; do\n");
+                os.writeBytes("  if [ -d \"$p\" ]; then\n");
+                os.writeBytes("    mkdir -p \"$p/files/Camera1\"\n");
+                os.writeBytes("    cp -f " + BASE_DIR + "config.json \"$p/files/Camera1/config.json\" 2>/dev/null\n");
+                os.writeBytes("    rm -f \"$p/files/Camera1/virtual.*\" 2>/dev/null\n");
                 if (mediaPath != null && !mediaPath.isEmpty()) {
-                    os.writeBytes("    cp -f \"" + mediaPath + "\" \"$d/virtual" + ext + "\" 2>/dev/null\n");
+                    os.writeBytes("    cp -f \"" + mediaPath + "\" \"$p/files/Camera1/virtual" + ext + "\" 2>/dev/null\n");
                     if ("IMAGE".equals(getActiveMediaType())) {
-                        os.writeBytes("    cp -f \"" + mediaPath + "\" \"$d/1000.bmp\" 2>/dev/null\n");
+                        os.writeBytes("    cp -f \"" + mediaPath + "\" \"$p/files/Camera1/1000.bmp\" 2>/dev/null\n");
                     }
                 }
-                os.writeBytes("    chmod -R 777 \"$d\" 2>/dev/null\n");
+                os.writeBytes("    chmod -R 777 \"$p/files/Camera1\" 2>/dev/null\n");
                 os.writeBytes("  fi\n");
                 os.writeBytes("done\n");
 

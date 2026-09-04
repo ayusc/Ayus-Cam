@@ -15,6 +15,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.InputConfiguration;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
+import android.media.ImageReader;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.opengl.EGL14;
@@ -40,7 +41,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
-import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
@@ -69,7 +69,7 @@ public class HookMain implements IXposedHookLoadPackage {
     private static Surface c2_reader_Surface_1 = null;
 
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
+    private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static Surface activePreviewSurface = null;
     private static Surface activePreviewSurface_1 = null;
     private static Surface currentPlayingSurface = null;
@@ -105,11 +105,37 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private static synchronized Surface getFakeSurface() {
         if (fake_Surface == null || !fake_Surface.isValid()) {
-            if (fake_SurfaceTexture != null) fake_SurfaceTexture.release();
+            if (fake_SurfaceTexture != null) {
+                try { fake_SurfaceTexture.release(); } catch (Exception ignored) {}
+            }
             fake_SurfaceTexture = new SurfaceTexture(15);
             fake_Surface = new Surface(fake_SurfaceTexture);
         }
         return fake_Surface;
+    }
+
+    private static boolean isReaderSurface(Surface surface) {
+        if (surface == null) return false;
+        if (imageReaderSurfaces.contains(surface)) return true;
+        String desc = surface.toString().toLowerCase();
+        return desc.contains("imagereader") || desc.contains("imageconsumer") || desc.contains("imageanalysis");
+    }
+
+    private static void classifySurface(Surface s) {
+        if (s == null || s == getFakeSurface()) return;
+        if (isReaderSurface(s)) {
+            if (c2_reader_Surface == null) {
+                c2_reader_Surface = s;
+            } else if (!s.equals(c2_reader_Surface) && c2_reader_Surface_1 == null) {
+                c2_reader_Surface_1 = s;
+            }
+        } else {
+            if (activePreviewSurface == null) {
+                activePreviewSurface = s;
+            } else if (!s.equals(activePreviewSurface) && activePreviewSurface_1 == null) {
+                activePreviewSurface_1 = s;
+            }
+        }
     }
 
     private static void resolveVideoPath(Context context) {
@@ -183,6 +209,54 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
+        // --- ImageReader Safety Guards: Prevents 0x1 vs 0x23 Crashes in GPay ---
+        try {
+            XC_MethodHook readerHook = new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    ImageReader reader = (ImageReader) param.getResult();
+                    if (reader != null) {
+                        try {
+                            Surface s = reader.getSurface();
+                            if (s != null) imageReaderSurfaces.add(s);
+                        } catch (Exception ignored) {}
+                    }
+                }
+            };
+            XposedHelpers.findAndHookMethod(ImageReader.class, "newInstance", int.class, int.class, int.class, int.class, readerHook);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                XposedHelpers.findAndHookMethod(ImageReader.class, "newInstance", int.class, int.class, int.class, int.class, long.class, readerHook);
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            XposedHelpers.findAndHookMethod(ImageReader.class, "getSurface", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    Surface surface = (Surface) param.getResult();
+                    if (surface != null) imageReaderSurfaces.add(surface);
+                }
+            });
+        } catch (Throwable ignored) {}
+
+        try {
+            XC_MethodHook guardHook = new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    if (param.hasThrowable()) {
+                        Throwable t = param.getThrowable();
+                        if (t instanceof UnsupportedOperationException || t instanceof IllegalStateException) {
+                            param.setThrowable(null);
+                            param.setResult(null);
+                        }
+                    }
+                }
+            };
+            XposedHelpers.findAndHookMethod(ImageReader.class, "acquireLatestImage", guardHook);
+            XposedHelpers.findAndHookMethod(ImageReader.class, "acquireNextImage", guardHook);
+        } catch (Throwable ignored) {}
+
+        // --- Camera 1 API Hooks ---
         String[] callbackMethods = {"setPreviewCallbackWithBuffer", "setPreviewCallback", "setOneShotPreviewCallback"};
         for (String method : callbackMethods) {
             try {
@@ -305,16 +379,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     });
         } catch (Throwable ignored) {}
 
-        try {
-            XposedHelpers.findAndHookMethod(android.media.ImageReader.class, "getSurface", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    Surface surface = (Surface) param.getResult();
-                    if (surface != null) imageReaderSurfaces.add(surface);
-                }
-            });
-        } catch (Throwable ignored) {}
-
+        // --- Camera 2 CaptureRequest Hooks ---
         try {
             XposedHelpers.findAndHookMethod(CaptureRequest.Builder.class, "addTarget", Surface.class, new XC_MethodHook() {
                 @Override
@@ -323,20 +388,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     Surface originalSurface = (Surface) param.args[0];
                     if (originalSurface == null) return;
 
-                    String surfaceInfo = originalSurface.toString();
-                    if (surfaceInfo.contains("Surface(name=null)") || imageReaderSurfaces.contains(originalSurface)) {
-                        if (c2_reader_Surface == null) {
-                            c2_reader_Surface = originalSurface;
-                        } else if (!c2_reader_Surface.equals(originalSurface) && c2_reader_Surface_1 == null) {
-                            c2_reader_Surface_1 = originalSurface;
-                        }
-                    } else {
-                        if (activePreviewSurface == null) {
-                            activePreviewSurface = originalSurface;
-                        } else if (!activePreviewSurface.equals(originalSurface) && activePreviewSurface_1 == null) {
-                            activePreviewSurface_1 = originalSurface;
-                        }
-                    }
+                    classifySurface(originalSurface);
                     param.args[0] = getFakeSurface();
                 }
             });
@@ -453,7 +505,7 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private static void startDataPlayback(Surface target) {
         if (target == null || !target.isValid()) return;
-        if (target == currentDataSurface && (dataDecoder != null || renderActive)) return;
+        if (target == currentDataSurface && dataDecoder != null) return;
 
         currentDataSurface = target;
         stopDataPlayback();
@@ -466,8 +518,6 @@ public class HookMain implements IXposedHookLoadPackage {
             try {
                 dataDecoder.decode(config.getActiveMediaPath());
             } catch (Throwable ignored) {}
-        } else if ("IMAGE".equals(config.getActiveMediaType())) {
-            startImageRenderLoop(target, config);
         }
     }
 
@@ -487,6 +537,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     hookCamera2Sessions(((CameraDevice) param.args[0]).getClass());
                 }
             });
+
             XC_MethodHook cleanupHook = new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
@@ -514,37 +565,71 @@ public class HookMain implements IXposedHookLoadPackage {
     private void hookCamera2Sessions(Class<?> deviceClass) {
         if (!hooked_classes.add(deviceClass)) return;
 
+        try {
+            XposedHelpers.findAndHookMethod(deviceClass, "close", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    activePreviewSurface = null;
+                    activePreviewSurface_1 = null;
+                    currentPlayingSurface = null;
+                    c2_reader_Surface = null;
+                    c2_reader_Surface_1 = null;
+                    currentDataSurface = null;
+                    stopMediaPlayback();
+                    if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
+                    stopDataPlayback();
+                    if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
+                }
+            });
+        } catch (Throwable ignored) {}
+
         XC_MethodHook listSessionHook = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
-                if (isSubstitutionActive()) param.args[0] = Arrays.asList(getFakeSurface());
+                if (!isSubstitutionActive()) return;
+                if (param.args[0] instanceof List) {
+                    List<?> list = (List<?>) param.args[0];
+                    for (Object item : list) {
+                        if (item instanceof Surface) classifySurface((Surface) item);
+                        else if (item instanceof OutputConfiguration) classifySurface(((OutputConfiguration) item).getSurface());
+                    }
+                }
+                param.args[0] = Arrays.asList(getFakeSurface());
             }
         };
-        try { XposedHelpers.findAndHookMethod(deviceClass, "close", new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) {
-                stopMediaPlayback();
-                stopDataPlayback();
-            }
-        }); } catch (Throwable ignored) {}
+
         try { XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, listSessionHook); } catch (Throwable ignored) {}
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try { XposedHelpers.findAndHookMethod(deviceClass, "createConstrainedHighSpeedCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, listSessionHook); } catch (Throwable ignored) {}
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createReprocessableCaptureSession", InputConfiguration.class, List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
-                        if (isSubstitutionActive()) param.args[1] = Arrays.asList(getFakeSurface());
+                        if (!isSubstitutionActive()) return;
+                        if (param.args[1] instanceof List) {
+                            for (Object s : (List<?>) param.args[1]) {
+                                if (s instanceof Surface) classifySurface((Surface) s);
+                            }
+                        }
+                        param.args[1] = Arrays.asList(getFakeSurface());
                     }
                 });
             } catch (Throwable ignored) {}
         }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSessionByOutputConfigurations", List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
-                        if (isSubstitutionActive()) param.args[0] = Arrays.asList(new OutputConfiguration(getFakeSurface()));
+                        if (!isSubstitutionActive()) return;
+                        if (param.args[0] instanceof List) {
+                            for (Object oc : (List<?>) param.args[0]) {
+                                if (oc instanceof OutputConfiguration) classifySurface(((OutputConfiguration) oc).getSurface());
+                            }
+                        }
+                        param.args[0] = Arrays.asList(new OutputConfiguration(getFakeSurface()));
                     }
                 });
             } catch (Throwable ignored) {}
@@ -552,11 +637,18 @@ public class HookMain implements IXposedHookLoadPackage {
                 XposedHelpers.findAndHookMethod(deviceClass, "createReprocessableCaptureSessionByConfigurations", InputConfiguration.class, List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                     @Override
                     protected void beforeHookedMethod(MethodHookParam param) {
-                        if (isSubstitutionActive()) param.args[1] = Arrays.asList(new OutputConfiguration(getFakeSurface()));
+                        if (!isSubstitutionActive()) return;
+                        if (param.args[1] instanceof List) {
+                            for (Object oc : (List<?>) param.args[1]) {
+                                if (oc instanceof OutputConfiguration) classifySurface(((OutputConfiguration) oc).getSurface());
+                            }
+                        }
+                        param.args[1] = Arrays.asList(new OutputConfiguration(getFakeSurface()));
                     }
                 });
             } catch (Throwable ignored) {}
         }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", SessionConfiguration.class, new XC_MethodHook() {
@@ -565,6 +657,10 @@ public class HookMain implements IXposedHookLoadPackage {
                         if (!isSubstitutionActive()) return;
                         SessionConfiguration originalConfig = (SessionConfiguration) param.args[0];
                         if (originalConfig != null) {
+                            List<OutputConfiguration> configs = originalConfig.getOutputConfigurations();
+                            for (OutputConfiguration oc : configs) {
+                                classifySurface(oc.getSurface());
+                            }
                             SessionConfiguration safeFakeConfig = new SessionConfiguration(
                                     originalConfig.getSessionType(),
                                     Arrays.asList(new OutputConfiguration(getFakeSurface())),
@@ -779,6 +875,7 @@ public class HookMain implements IXposedHookLoadPackage {
         public GLVideoRenderer(Surface targetSurface, String videoPath) {
             this.mOutputSurface = targetSurface;
             this.mVideoPath = videoPath;
+            android.opengl.Matrix.setIdentityM(mSTMatrix, 0);
             mTriangleVertices = ByteBuffer.allocateDirect(mTriangleVerticesData.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
             mTriangleVertices.put(mTriangleVerticesData).position(0);
         }
@@ -961,7 +1058,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     else { scaleX = videoAspect / viewAspect; }
                 } else if ("FILL".equals(config.scaleMode)) {
                     if (videoAspect > viewAspect) { scaleX = videoAspect / viewAspect; }
-                    else { scaleY = viewAspect / videoAspect; }
+                    else { scaleY = viewAspect / viewAspect; }
                 }
             }
 

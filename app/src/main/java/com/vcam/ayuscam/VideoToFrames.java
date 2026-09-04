@@ -85,7 +85,6 @@ public class VideoToFrames implements Runnable {
             String mime = mediaFormat.getString(MediaFormat.KEY_MIME);
             decoder = MediaCodec.createDecoderByType(mime);
 
-            // Only set buffer color format if decoding to memory without a hardware surface
             if (play_surf == null && isColorFormatSupported(decodeColorFormat, decoder.getCodecInfo().getCapabilitiesForType(mime))) {
                 mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, decodeColorFormat);
             }
@@ -158,7 +157,9 @@ public class VideoToFrames implements Runnable {
                     if (sleepTime > 0) {
                         try { Thread.sleep(sleepTime); } catch (InterruptedException ignored) {}
                     }
-                    decoder.releaseOutputBuffer(outputBufferId, true);
+                    try {
+                        decoder.releaseOutputBuffer(outputBufferId, true);
+                    } catch (Exception ignored) {}
                 }
             }
         }
