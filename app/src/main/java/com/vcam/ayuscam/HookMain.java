@@ -800,7 +800,24 @@ public class HookMain implements IXposedHookLoadPackage {
             mEGLContext = EGL14.eglCreateContext(mEGLDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0);
 
             int[] surfaceAttribs = { EGL14.EGL_NONE };
-            mEGLSurface = EGL14.eglCreateWindowSurface(mEGLDisplay, configs[0], mOutputSurface, surfaceAttribs, 0);
+
+            // Wrapped EGL surface creation to catch application premature surface injection
+            try {
+                if (mOutputSurface == null || !mOutputSurface.isValid()) {
+                    writeLog("EGL Surface Creation Aborted: Surface is already invalid.");
+                    mRunning = false;
+                    return;
+                }
+                mEGLSurface = EGL14.eglCreateWindowSurface(mEGLDisplay, configs[0], mOutputSurface, surfaceAttribs, 0);
+            } catch (IllegalArgumentException e) {
+                writeLog("EGL Surface Creation Failed (Timing Issue): " + e.getMessage());
+                mRunning = false;
+                return;
+            } catch (Exception e) {
+                writeLog("EGL Surface Creation Exception: " + e.getMessage());
+                mRunning = false;
+                return;
+            }
             
             if (mEGLSurface == null || mEGLSurface == EGL14.EGL_NO_SURFACE) {
                 writeLog("EGL Surface Creation Failed: " + EGL14.eglGetError());
