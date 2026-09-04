@@ -158,7 +158,13 @@ public class HookMain implements IXposedHookLoadPackage {
                         startMediaPlayback(holder.getSurface());
                     }
                     param.args[0] = null;
-                    ((Camera) param.thisObject).setPreviewTexture(getFakeSurfaceTexture());
+                    
+                    try {
+                        ((Camera) param.thisObject).setPreviewTexture(getFakeSurfaceTexture());
+                    } catch (java.io.IOException e) {
+                        writeLog("IOException setting fake preview texture: " + e.getMessage());
+                    }
+                    
                     param.setResult(null);
                 }
             });
