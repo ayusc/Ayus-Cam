@@ -88,7 +88,10 @@ public class VideoToFrames implements Runnable {
 
             while (!stopDecode) {
                 decodeFramesToImage(decoder, extractor);
+                
+                // CRITICAL FIX: Flush the decoder when looping back to the beginning
                 extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+                decoder.flush(); 
             }
         } finally {
             if (decoder != null) {
@@ -136,13 +139,16 @@ public class VideoToFrames implements Runnable {
                         is_first = true;
                     }
                     if (play_surf == null) {
-                        Image image = decoder.getOutputImage(outputBufferId);
-                        if (image != null) {
-                            if (outputImageFormat != null) {
-                                // Feed the raw bytes globally so Camera1 callbacks can access them
-                                HookMain.data_buffer = getDataFromImage(image, COLOR_FormatNV21);
+                        try {
+                            Image image = decoder.getOutputImage(outputBufferId);
+                            if (image != null) {
+                                if (outputImageFormat != null) {
+                                    HookMain.data_buffer = getDataFromImage(image, COLOR_FormatNV21);
+                                }
+                                image.close();
                             }
-                            image.close();
+                        } catch (Exception e) {
+                            XposedBridge.log("AyusCam: Failed to get Image buffer - " + e.getMessage());
                         }
                     }
                     long sleepTime = (info.presentationTimeUs / 1000) - (System.currentTimeMillis() - startWhen);

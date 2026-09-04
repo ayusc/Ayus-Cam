@@ -64,6 +64,7 @@ public class HookMain implements IXposedHookLoadPackage {
     public static volatile byte[] data_buffer = null;
     private static VideoToFrames dataDecoder;
     private static Surface c2_reader_Surface = null;
+    private static Object c2_builder = null; // CRITICAL FIX: Guard variable from App 2
 
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
@@ -132,7 +133,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     });
         } catch (Throwable ignored) {}
 
-        // --- CAMERA 1: PREVIEW CALLBACKS (Fixes GPay Scanning) ---
+        // --- CAMERA 1: PREVIEW CALLBACKS ---
         String[] callbackMethods = {"setPreviewCallbackWithBuffer", "setPreviewCallback", "setOneShotPreviewCallback"};
         for (String method : callbackMethods) {
             try {
@@ -147,7 +148,7 @@ public class HookMain implements IXposedHookLoadPackage {
             } catch (Throwable ignored) {}
         }
 
-        // --- CAMERA 1: SET PREVIEW DISPLAY (Fixes GPay visuals) ---
+        // --- CAMERA 1: SET PREVIEW DISPLAY ---
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "setPreviewDisplay", android.view.SurfaceHolder.class, new XC_MethodHook() {
                 @Override
@@ -218,7 +219,7 @@ public class HookMain implements IXposedHookLoadPackage {
         } catch (Throwable ignored) {}
 
 
-        // --- CAMERA 2: IMAGE READER HOOK (Identifies WhatsApp Data Layer) ---
+        // --- CAMERA 2: IMAGE READER HOOK ---
         try {
             XposedHelpers.findAndHookMethod(android.media.ImageReader.class, "getSurface", new XC_MethodHook() {
                 @Override
@@ -276,6 +277,12 @@ public class HookMain implements IXposedHookLoadPackage {
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!isSubstitutionActive()) return;
                     
+                    // CRITICAL FIX: Guard against continuous restarts when app calls build() on every frame
+                    if (param.thisObject != null && param.thisObject.equals(c2_builder)) {
+                        return;
+                    }
+                    c2_builder = param.thisObject;
+
                     // Route to UI Layer
                     if (activePreviewSurface != null) {
                         startMediaPlayback(activePreviewSurface);
@@ -312,7 +319,6 @@ public class HookMain implements IXposedHookLoadPackage {
         }
     }
 
-    // Connects Camera 1 byte processing arrays
     private void process_callback(XC_MethodHook.MethodHookParam param) {
         Class<?> cbClass = param.args[0].getClass();
         XposedHelpers.findAndHookMethod(cbClass, "onPreviewFrame", byte[].class, Camera.class, new XC_MethodHook() {
@@ -337,7 +343,6 @@ public class HookMain implements IXposedHookLoadPackage {
         });
     }
 
-    // Hardware decoding strictly for the background data streams (ImageReaders)
     private static void startDataPlayback(Surface target) {
         if (target == null) return;
         AppConfig config = getLiveConfig();
@@ -370,6 +375,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     activePreviewSurface = null;
                     currentPlayingSurface = null;
                     c2_reader_Surface = null;
+                    c2_builder = null; // Clear the guard to allow restarts
                     stopMediaPlayback();
                     if (dataDecoder != null) dataDecoder.stopDecode();
                 }
