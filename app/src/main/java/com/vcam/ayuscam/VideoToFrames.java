@@ -58,7 +58,7 @@ public class VideoToFrames implements Runnable {
         try {
             videoDecode(videoFilePath);
         } catch (Throwable t) {
-            XposedBridge.log("AyusCam: VideoToFrames Error - " + t.getMessage());
+            XposedBridge.log("VideoToFrames Error - " + t.getMessage());
         }
     }
 
@@ -89,7 +89,6 @@ public class VideoToFrames implements Runnable {
             while (!stopDecode) {
                 decodeFramesToImage(decoder, extractor);
                 
-                // CRITICAL FIX: Flush the decoder when looping back to the beginning
                 extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
                 decoder.flush(); 
             }
@@ -148,7 +147,7 @@ public class VideoToFrames implements Runnable {
                                 image.close();
                             }
                         } catch (Exception e) {
-                            XposedBridge.log("AyusCam: Failed to get Image buffer - " + e.getMessage());
+                            XposedBridge.log("Failed to get Image buffer - " + e.getMessage());
                         }
                     }
                     long sleepTime = (info.presentationTimeUs / 1000) - (System.currentTimeMillis() - startWhen);

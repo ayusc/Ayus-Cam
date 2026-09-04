@@ -54,7 +54,7 @@ public class HookMain implements IXposedHookLoadPackage {
     private static Surface fake_Surface;
     private static SurfaceTexture fake_SurfaceTexture;
     private static Context appContext;
-    
+
     // UI & Playback Streams
     private static Thread renderThread;
     private static volatile boolean renderActive = false;
@@ -64,38 +64,72 @@ public class HookMain implements IXposedHookLoadPackage {
     public static volatile byte[] data_buffer = null;
     private static VideoToFrames dataDecoder;
     private static Surface c2_reader_Surface = null;
-    private static Object c2_builder = null; // CRITICAL FIX: Guard variable from App 2
 
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
     private static Surface activePreviewSurface = null;
     private static Surface currentPlayingSurface = null;
+    private static Surface currentDataSurface = null;
+
+    private static AppConfig cachedConfig = null;
+    private static long lastConfigModTime = -1;
 
     private static AppConfig getLiveConfig() {
-        return AppConfig.load(appContext);
+        long currentMod = 0;
+        File globalConfig = new File(AppConfig.CONFIG_FILE);
+        if (globalConfig.exists() && globalConfig.canRead()) {
+            currentMod = globalConfig.lastModified();
+        } else if (appContext != null) {
+            File extFilesDir = appContext.getExternalFilesDir(null);
+            if (extFilesDir != null) {
+                File privConfig = new File(extFilesDir, "Camera1/config.json");
+                if (privConfig.exists() && privConfig.canRead()) {
+                    currentMod = privConfig.lastModified();
+                }
+            }
+        }
+        if (currentMod == 0) currentMod = 1;
+
+        if (cachedConfig == null || currentMod > lastConfigModTime) {
+            cachedConfig = AppConfig.load(appContext);
+            lastConfigModTime = currentMod;
+        }
+        return cachedConfig;
     }
 
     private static boolean isSubstitutionActive() {
         AppConfig config = getLiveConfig();
         if (!config.enabled) return false;
-
         String path = config.getActiveMediaPath();
         if (path == null || path.trim().isEmpty()) return false;
-
         File file = new File(path);
         return file.exists() && file.canRead();
     }
 
+    private static void recreateFakeSurface() {
+        if (fake_SurfaceTexture != null) {
+            fake_SurfaceTexture.release();
+            fake_SurfaceTexture = null;
+        }
+        if (fake_Surface != null) {
+            fake_Surface.release();
+            fake_Surface = null;
+        }
+        fake_SurfaceTexture = new SurfaceTexture(15);
+        fake_Surface = new Surface(fake_SurfaceTexture);
+    }
+
     private static SurfaceTexture getFakeSurfaceTexture() {
         if (fake_SurfaceTexture == null) {
-            fake_SurfaceTexture = new SurfaceTexture(15);
-            fake_Surface = new Surface(fake_SurfaceTexture);
+            recreateFakeSurface();
         }
         return fake_SurfaceTexture;
     }
 
     private static Surface getFakeSurface() {
-        getFakeSurfaceTexture();
+        if (fake_Surface == null) {
+            recreateFakeSurface();
+        }
         return fake_Surface;
     }
 
@@ -103,7 +137,6 @@ public class HookMain implements IXposedHookLoadPackage {
         String timestamp = new SimpleDateFormat("HH:mm:ss", Locale.US).format(new Date());
         String logEntry = timestamp + "  " + text;
         XposedBridge.log("AyusCam: " + logEntry);
-
         try {
             File logFile = new File(AppConfig.LOG_FILE);
             if (!logFile.exists() && logFile.getParentFile() != null) {
@@ -160,6 +193,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
                     param.args[0] = null;
                     
+                    recreateFakeSurface();
                     try {
                         ((Camera) param.thisObject).setPreviewTexture(getFakeSurfaceTexture());
                     } catch (java.io.IOException e) {
@@ -181,6 +215,7 @@ public class HookMain implements IXposedHookLoadPackage {
                             if (realST != null) {
                                 startMediaPlayback(new Surface(realST));
                             }
+                            recreateFakeSurface();
                             param.args[0] = getFakeSurfaceTexture();
                         }
                     });
@@ -217,7 +252,6 @@ public class HookMain implements IXposedHookLoadPackage {
                         }
                     });
         } catch (Throwable ignored) {}
-
 
         // --- CAMERA 2: IMAGE READER HOOK ---
         try {
@@ -256,7 +290,6 @@ public class HookMain implements IXposedHookLoadPackage {
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!isSubstitutionActive()) return;
                     Surface originalSurface = (Surface) param.args[0];
-
                     if (originalSurface != null) {
                         if (originalSurface.equals(activePreviewSurface)) {
                             activePreviewSurface = null;
@@ -265,7 +298,8 @@ public class HookMain implements IXposedHookLoadPackage {
                         }
                         if (originalSurface.equals(c2_reader_Surface)) {
                             c2_reader_Surface = null;
-                            if (dataDecoder != null) dataDecoder.stopDecode();
+                            currentDataSurface = null;
+                            stopDataPlayback();
                         }
                     }
                     param.args[0] = getFakeSurface();
@@ -277,17 +311,11 @@ public class HookMain implements IXposedHookLoadPackage {
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!isSubstitutionActive()) return;
                     
-                    // CRITICAL FIX: Guard against continuous restarts when app calls build() on every frame
-                    if (param.thisObject != null && param.thisObject.equals(c2_builder)) {
-                        return;
-                    }
-                    c2_builder = param.thisObject;
-
                     // Route to UI Layer
                     if (activePreviewSurface != null) {
                         startMediaPlayback(activePreviewSurface);
                     }
-                    // Route to Data Layer (Fixes WhatsApp Hang)
+                    // Route to Data Layer
                     if (c2_reader_Surface != null) {
                         startDataPlayback(c2_reader_Surface);
                     }
@@ -344,10 +372,13 @@ public class HookMain implements IXposedHookLoadPackage {
     }
 
     private static void startDataPlayback(Surface target) {
-        if (target == null) return;
+        if (target == null || !target.isValid() || target == currentDataSurface) {
+            return;
+        }
+        currentDataSurface = target;
         AppConfig config = getLiveConfig();
         if ("VIDEO".equals(config.getActiveMediaType())) {
-            if (dataDecoder != null) dataDecoder.stopDecode();
+            stopDataPlayback();
             dataDecoder = new VideoToFrames();
             dataDecoder.setSaveFrames(VideoToFrames.OutputImageFormat.NV21);
             dataDecoder.setSurface(target);
@@ -359,12 +390,21 @@ public class HookMain implements IXposedHookLoadPackage {
         }
     }
 
+    private static void stopDataPlayback() {
+        if (dataDecoder != null) {
+            dataDecoder.stopDecode();
+            dataDecoder = null;
+        }
+    }
+
     private void hookCamera2DeviceCallbacks(Class<?> stateCallbackClass) {
         if (!hooked_classes.add(stateCallbackClass)) return;
+
         try {
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onOpened", CameraDevice.class, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
+                    recreateFakeSurface();
                     hookCamera2Sessions(((CameraDevice) param.args[0]).getClass());
                 }
             });
@@ -375,18 +415,23 @@ public class HookMain implements IXposedHookLoadPackage {
                     activePreviewSurface = null;
                     currentPlayingSurface = null;
                     c2_reader_Surface = null;
-                    c2_builder = null; // Clear the guard to allow restarts
+                    currentDataSurface = null;
+                    
                     stopMediaPlayback();
-                    if (dataDecoder != null) dataDecoder.stopDecode();
+                    stopDataPlayback();
+                    recreateFakeSurface();
                 }
             };
+
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onClosed", CameraDevice.class, cleanupHook);
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onDisconnected", CameraDevice.class, cleanupHook);
+
         } catch (Throwable ignored) {}
     }
 
     private void hookCamera2Sessions(Class<?> deviceClass) {
         if (!hooked_classes.add(deviceClass)) return;
+
         XC_MethodHook listSessionHook = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
@@ -398,6 +443,7 @@ public class HookMain implements IXposedHookLoadPackage {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try { XposedHelpers.findAndHookMethod(deviceClass, "createConstrainedHighSpeedCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, listSessionHook); } catch (Throwable ignored) {}
+
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createReprocessableCaptureSession", InputConfiguration.class, List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                     @Override
@@ -417,6 +463,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
                 });
             } catch (Throwable ignored) {}
+
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createReprocessableCaptureSessionByConfigurations", InputConfiguration.class, List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                     @Override
@@ -456,6 +503,7 @@ public class HookMain implements IXposedHookLoadPackage {
         }
         currentPlayingSurface = targetSurface;
         AppConfig config = getLiveConfig();
+
         stopMediaPlayback();
 
         if ("VIDEO".equals(config.getActiveMediaType())) {
@@ -479,7 +527,6 @@ public class HookMain implements IXposedHookLoadPackage {
         }
     }
 
-    // High performance memory safe Canvas matrix drawing
     private static void startImageRenderLoop(Surface surface, AppConfig initialConfig) {
         renderActive = true;
         renderThread = new Thread(() -> {
@@ -528,6 +575,7 @@ public class HookMain implements IXposedHookLoadPackage {
                                 }
 
                                 canvas.drawColor(Color.BLACK);
+
                                 if (activeBitmap != null && localConfig.zoom > 0 && !localConfig.isPaused) {
                                     int viewW = canvas.getWidth();
                                     int viewH = canvas.getHeight();
@@ -549,10 +597,12 @@ public class HookMain implements IXposedHookLoadPackage {
                                         scaleY = baseScale;
                                     }
                                     m.postScale(scaleX, scaleY);
+
                                     float zoom = localConfig.zoom / 100f;
                                     m.postScale(zoom, zoom);
                                     m.postRotate(localConfig.rotation);
                                     m.postTranslate(viewW / 2f + localConfig.panX, viewH / 2f + localConfig.panY);
+
                                     canvas.drawBitmap(activeBitmap, m, null);
                                 }
                             } finally {
@@ -575,6 +625,7 @@ public class HookMain implements IXposedHookLoadPackage {
         Bitmap outBmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(outBmp);
         canvas.drawColor(Color.BLACK);
+
         Matrix m = new Matrix();
         m.postTranslate(-original.getWidth() / 2f, -original.getHeight() / 2f);
 
@@ -590,17 +641,18 @@ public class HookMain implements IXposedHookLoadPackage {
             scaleY = baseScale;
         }
         m.postScale(scaleX, scaleY);
+
         float zoom = config.zoom / 100f;
         m.postScale(zoom, zoom);
         m.postRotate(config.rotation);
         m.postTranslate(targetWidth / 2f + config.panX, targetHeight / 2f + config.panY);
+
         canvas.drawBitmap(original, m, null);
         original.recycle();
 
         return outBmp;
     }
 
-    // --- EGL VIDEO RENDERER FOR HARDWARE MANIPULATION --- //
     private static class GLVideoRenderer extends Thread implements SurfaceTexture.OnFrameAvailableListener {
         private final Surface mOutputSurface;
         private final String mVideoPath;
@@ -641,11 +693,12 @@ public class HookMain implements IXposedHookLoadPackage {
                 "}\n";
 
         private final float[] mTriangleVerticesData = {
-                -1.0f, -1.0f, 0, 0.f, 0.f,
+                -1.0f, -1.0f, 0, 0.f, 0.f, 
                  1.0f, -1.0f, 0, 1.f, 0.f,
-                -1.0f,  1.0f, 0, 0.f, 1.f,
+                -1.0f,  1.0f, 0, 0.f, 1.f, 
                  1.0f,  1.0f, 0, 1.f, 1.f,
         };
+
         private FloatBuffer mTriangleVertices;
 
         public GLVideoRenderer(Surface targetSurface, String videoPath) {
@@ -660,7 +713,6 @@ public class HookMain implements IXposedHookLoadPackage {
             mRunning = true;
             initEGL();
             if (!mRunning) return;
-
             initGL();
             
             mSurfaceTexture = new SurfaceTexture(mTextureID);
@@ -674,7 +726,8 @@ public class HookMain implements IXposedHookLoadPackage {
                 mMediaPlayer.setLooping(true);
                 AppConfig startCfg = getLiveConfig();
                 mMediaPlayer.setVolume(startCfg.volume / 100f, startCfg.volume / 100f);
-                mMediaPlayer.prepare(); 
+                mMediaPlayer.prepare();
+
                 if (!startCfg.isPaused) mMediaPlayer.start();
             } catch (Exception e) {
                 writeLog("Video decoder failure: " + e.getMessage());
@@ -746,7 +799,6 @@ public class HookMain implements IXposedHookLoadPackage {
             EGL14.eglQuerySurface(mEGLDisplay, mEGLSurface, EGL14.EGL_HEIGHT, height, 0);
 
             if (width[0] == 0 || height[0] == 0) return;
-
             GLES20.glViewport(0, 0, width[0], height[0]);
             GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
@@ -761,18 +813,23 @@ public class HookMain implements IXposedHookLoadPackage {
 
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
             GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
+
             mTriangleVertices.position(0);
             GLES20.glVertexAttribPointer(maPositionHandle, 3, GLES20.GL_FLOAT, false, 20, mTriangleVertices);
             GLES20.glEnableVertexAttribArray(maPositionHandle);
+
             mTriangleVertices.position(3);
             GLES20.glVertexAttribPointer(maTextureHandle, 2, GLES20.GL_FLOAT, false, 20, mTriangleVertices);
             GLES20.glEnableVertexAttribArray(maTextureHandle);
+
             GLES20.glUniformMatrix4fv(muSTMatrixHandle, 1, false, mSTMatrix, 0);
 
             float[] mvpMatrix = new float[16];
             android.opengl.Matrix.setIdentityM(mvpMatrix, 0);
+
             float glPanX = config.panX / 500f;
             float glPanY = -config.panY / 500f;
+
             android.opengl.Matrix.translateM(mvpMatrix, 0, glPanX, glPanY, 0f);
             float zoom = config.zoom / 100f;
             android.opengl.Matrix.scaleM(mvpMatrix, 0, zoom, zoom, 1f);
@@ -785,6 +842,7 @@ public class HookMain implements IXposedHookLoadPackage {
             if (videoW > 0 && videoH > 0) {
                 float videoAspect = (float) videoW / videoH;
                 float viewAspect = (float) width[0] / height[0];
+
                 if ("STRETCH".equals(config.scaleMode)) {
                     scaleX = 1f; scaleY = 1f;
                 } else if ("FIT".equals(config.scaleMode)) {
@@ -795,8 +853,10 @@ public class HookMain implements IXposedHookLoadPackage {
                     else { scaleY = viewAspect / videoAspect; }
                 }
             }
+
             android.opengl.Matrix.scaleM(mvpMatrix, 0, scaleX, scaleY, 1f);
             GLES20.glUniformMatrix4fv(muMVPMatrixHandle, 1, false, mvpMatrix, 0);
+
             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         }
 
@@ -830,9 +890,8 @@ public class HookMain implements IXposedHookLoadPackage {
             
             int[] contextAttribs = { EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE };
             mEGLContext = EGL14.eglCreateContext(mEGLDisplay, configs[0], EGL14.EGL_NO_CONTEXT, contextAttribs, 0);
-            int[] surfaceAttribs = { EGL14.EGL_NONE };
 
-            // Fix for premature WhatsApp Surface Loading
+            int[] surfaceAttribs = { EGL14.EGL_NONE };
             try {
                 if (mOutputSurface == null || !mOutputSurface.isValid()) {
                     mRunning = false; return;
@@ -858,10 +917,10 @@ public class HookMain implements IXposedHookLoadPackage {
             GLES20.glLinkProgram(mProgram);
             
             GLES20.glDisable(GLES20.GL_CULL_FACE);
+
             int[] textures = new int[1];
             GLES20.glGenTextures(1, textures, 0);
             mTextureID = textures[0];
-
             GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
             GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
             GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
