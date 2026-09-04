@@ -63,25 +63,22 @@ public class HookMain implements IXposedHookLoadPackage {
     public static volatile byte[] data_buffer = null;
     private static VideoToFrames dataDecoder;
     private static VideoToFrames dataDecoder_1 = null;
-    
+
     private static Surface c2_reader_Surface = null;
     private static Surface c2_reader_Surface_1 = null;
-
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new WeakHashMap<>());
-    
+
     private static Surface activePreviewSurface = null;
     private static Surface activePreviewSurface_1 = null;
-
     private static Surface currentPlayingSurface = null;
     private static Surface currentDataSurface = null;
-
+    
     private static AppConfig cachedConfig = null;
     private static long lastCheckTime = 0;
 
     private static AppConfig getLiveConfig() {
         if (cachedConfig == null || (System.currentTimeMillis() - lastCheckTime > 500)) {
-            // FIXED: Decouple from appContext to prevent race conditions during early camera initialization
             cachedConfig = AppConfig.loadForHook();
             lastCheckTime = System.currentTimeMillis();
         }
@@ -93,9 +90,7 @@ public class HookMain implements IXposedHookLoadPackage {
         if (!config.enabled) return false;
         String path = config.getActiveMediaPath();
         if (path == null || path.trim().isEmpty()) return false;
-        
         try {
-            // FIXED: Bypass File.exists() and File.canRead() which fail SELinux checks on untrusted apps
             FileInputStream fis = new FileInputStream(path);
             fis.close();
             return true;
@@ -130,7 +125,7 @@ public class HookMain implements IXposedHookLoadPackage {
     @Override
     public void handleLoadPackage(XC_LoadPackage.LoadPackageParam lpparam) {
         if ("com.vcam.ayuscam".equals(lpparam.packageName)) return;
-        
+
         try {
             XposedHelpers.findAndHookMethod("android.app.Instrumentation", lpparam.classLoader,
                     "callApplicationOnCreate", Application.class, new XC_MethodHook() {
@@ -158,7 +153,19 @@ public class HookMain implements IXposedHookLoadPackage {
             } catch (Throwable ignored) {}
         }
 
-        // --- CAMERA 1: SET PREVIEW DISPLAY ---
+        // --- CAMERA 1: ADD CALLBACK BUFFER (CRITICAL FIX FOR CRASHES) ---
+        try {
+            XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "addCallbackBuffer", byte[].class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (param.args[0] != null && isSubstitutionActive()) {
+                        param.args[0] = new byte[((byte[]) param.args[0]).length];
+                    }
+                }
+            });
+        } catch (Throwable ignored) {}
+
+        // --- CAMERA 1: SET PREVIEW DISPLAY & TEXTURE ---
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "setPreviewDisplay", android.view.SurfaceHolder.class, new XC_MethodHook() {
                 @Override
@@ -166,10 +173,9 @@ public class HookMain implements IXposedHookLoadPackage {
                     if (!isSubstitutionActive()) return;
                     android.view.SurfaceHolder holder = (android.view.SurfaceHolder) param.args[0];
                     if (holder != null && holder.getSurface() != null) {
-                        startMediaPlayback(holder.getSurface());
+                        activePreviewSurface = holder.getSurface();
                     }
                     param.args[0] = null;
-                    
                     recreateFakeSurface();
                     try { ((Camera) param.thisObject).setPreviewTexture(getFakeSurfaceTexture()); } catch (Exception e) {}
                     param.setResult(null);
@@ -184,7 +190,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     if (!isSubstitutionActive()) return;
                     SurfaceTexture realST = (SurfaceTexture) param.args[0];
                     if (realST != null) {
-                        startMediaPlayback(new Surface(realST));
+                        activePreviewSurface = new Surface(realST);
                     }
                     recreateFakeSurface();
                     param.args[0] = getFakeSurfaceTexture();
@@ -192,6 +198,30 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
+        // --- CAMERA 1: START & STOP PREVIEW (CRITICAL LIFECYCLE FIX) ---
+        try {
+            XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "startPreview", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (!isSubstitutionActive()) return;
+                    if (activePreviewSurface != null) {
+                        startMediaPlayback(activePreviewSurface);
+                    }
+                }
+            });
+        } catch (Throwable ignored) {}
+
+        try {
+            XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "stopPreview", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    stopMediaPlayback();
+                    stopDataPlayback();
+                }
+            });
+        } catch (Throwable ignored) {}
+
+        // --- CAMERA 1: TAKE PICTURE ---
         try {
             XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader,
                     "takePicture", Camera.ShutterCallback.class, Camera.PictureCallback.class,
@@ -255,7 +285,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     param.args[0] = getFakeSurface();
                 }
             });
-            
+
             XposedHelpers.findAndHookMethod(CaptureRequest.Builder.class, "removeTarget", Surface.class, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
@@ -283,20 +313,18 @@ public class HookMain implements IXposedHookLoadPackage {
                     param.args[0] = getFakeSurface();
                 }
             });
-            
+
             XposedHelpers.findAndHookMethod(CaptureRequest.Builder.class, "build", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!isSubstitutionActive()) return;
                     
-                    // Start Preview Renderers
                     if (activePreviewSurface != null) startMediaPlayback(activePreviewSurface);
                     if (activePreviewSurface_1 != null && glVideoRenderer_1 == null) {
                         glVideoRenderer_1 = new GLVideoRenderer(activePreviewSurface_1, getLiveConfig().getActiveMediaPath());
                         glVideoRenderer_1.start();
                     }
                     
-                    // Start Data Readers
                     if (c2_reader_Surface != null) startDataPlayback(c2_reader_Surface);
                     if (c2_reader_Surface_1 != null && dataDecoder_1 == null) {
                         dataDecoder_1 = new VideoToFrames();
@@ -420,7 +448,7 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private void hookCamera2Sessions(Class<?> deviceClass) {
         if (!hooked_classes.add(deviceClass)) return;
-
+        
         XC_MethodHook listSessionHook = new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
@@ -428,11 +456,17 @@ public class HookMain implements IXposedHookLoadPackage {
             }
         };
 
-        try { XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, listSessionHook); } catch (Throwable ignored) {}
+        try { XposedHelpers.findAndHookMethod(deviceClass, "close", new XC_MethodHook() {
+            @Override
+            protected void beforeHookedMethod(MethodHookParam param) {
+                stopMediaPlayback();
+                stopDataPlayback();
+            }
+        }); } catch (Throwable ignored) {}
 
+        try { XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, listSessionHook); } catch (Throwable ignored) {}
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try { XposedHelpers.findAndHookMethod(deviceClass, "createConstrainedHighSpeedCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, listSessionHook); } catch (Throwable ignored) {}
-            
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createReprocessableCaptureSession", InputConfiguration.class, List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                     @Override
@@ -442,7 +476,6 @@ public class HookMain implements IXposedHookLoadPackage {
                 });
             } catch (Throwable ignored) {}
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSessionByOutputConfigurations", List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
@@ -452,7 +485,6 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
                 });
             } catch (Throwable ignored) {}
-            
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createReprocessableCaptureSessionByConfigurations", InputConfiguration.class, List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
                     @Override
@@ -462,7 +494,6 @@ public class HookMain implements IXposedHookLoadPackage {
                 });
             } catch (Throwable ignored) {}
         }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             try {
                 XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", SessionConfiguration.class, new XC_MethodHook() {
@@ -471,20 +502,12 @@ public class HookMain implements IXposedHookLoadPackage {
                         if (!isSubstitutionActive()) return;
                         SessionConfiguration originalConfig = (SessionConfiguration) param.args[0];
                         if (originalConfig != null) {
-                            SessionConfiguration fakeConfig = new SessionConfiguration(
-                                    originalConfig.getSessionType(),
-                                    Arrays.asList(new OutputConfiguration(getFakeSurface())),
-                                    originalConfig.getExecutor(),
-                                    originalConfig.getStateCallback()
-                            );
-                            
                             SessionConfiguration safeFakeConfig = new SessionConfiguration(
                                     originalConfig.getSessionType(),
                                     Arrays.asList(new OutputConfiguration(getFakeSurface())),
                                     originalConfig.getExecutor(),
                                     originalConfig.getStateCallback()
                             );
-                            
                             param.args[0] = safeFakeConfig;
                         }
                     }
@@ -686,7 +709,13 @@ public class HookMain implements IXposedHookLoadPackage {
         public void run() {
             mRunning = true;
             initEGL();
-            if (!mRunning) return;
+            
+            // CRITICAL FIX: Direct Fallback if EGL Context fails to attach in target app
+            if (!mRunning) {
+                startDirectFallbackPlayer();
+                return; 
+            }
+
             initGL();
             
             mSurfaceTexture = new SurfaceTexture(mTextureID);
@@ -696,7 +725,6 @@ public class HookMain implements IXposedHookLoadPackage {
             mMediaPlayer = new MediaPlayer();
             try {
                 mMediaPlayer.setSurface(mInputSurface);
-                
                 FileInputStream fis = new FileInputStream(mVideoPath);
                 mMediaPlayer.setDataSource(fis.getFD());
                 fis.close();
@@ -751,6 +779,21 @@ public class HookMain implements IXposedHookLoadPackage {
                 mMediaPlayer.release();
             }
             releaseEGL();
+        }
+        
+        private void startDirectFallbackPlayer() {
+            try {
+                mMediaPlayer = new MediaPlayer();
+                mMediaPlayer.setSurface(mOutputSurface);
+                FileInputStream fis = new FileInputStream(mVideoPath);
+                mMediaPlayer.setDataSource(fis.getFD());
+                fis.close();
+                mMediaPlayer.setLooping(true);
+                AppConfig cfg = getLiveConfig();
+                mMediaPlayer.setVolume(cfg.volume / 100f, cfg.volume / 100f);
+                mMediaPlayer.prepare();
+                if (!cfg.isPaused) mMediaPlayer.start();
+            } catch (Exception ignored) {}
         }
 
         private void drawFrame(AppConfig config) {
