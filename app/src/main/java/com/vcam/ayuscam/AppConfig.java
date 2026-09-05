@@ -23,7 +23,7 @@ public class AppConfig {
     public List<String> mediaPaths = new ArrayList<>();
     public List<String> mediaTypes = new ArrayList<>();
     public List<String> mediaNames = new ArrayList<>();
-    public List<String> scopedPackages = new ArrayList<>(); // Track dynamic scoped packages
+    public List<String> scopedPackages = new ArrayList<>();
     public int selectedIndex = 0;
     public int rotation = 0;
     public int zoom = 100;
@@ -35,6 +35,9 @@ public class AppConfig {
     public boolean showHud = false;
     public boolean disableToast = false;
     public boolean isPaused = false;
+
+    private static long lastConfigFileModTime = 0;
+    private static AppConfig cachedHookConfig = null;
 
     public String getActiveMediaType() {
         if (selectedIndex >= 0 && selectedIndex < mediaTypes.size()) return mediaTypes.get(selectedIndex);
@@ -53,18 +56,21 @@ public class AppConfig {
     }
 
     public static AppConfig loadForHook(String activeDir) {
-        AppConfig config = new AppConfig();
         File privConfig = new File(activeDir, "config.json");
         File pubConfig = new File(BASE_DIR, "config.json");
-        File configFileToUse = null;
-
-        if (privConfig.exists() && privConfig.canRead()) {
-            configFileToUse = privConfig;
-        } else if (pubConfig.exists() && pubConfig.canRead()) {
+        File configFileToUse = (privConfig.exists() && privConfig.canRead()) ? privConfig : null;
+        
+        if (configFileToUse == null && pubConfig.exists() && pubConfig.canRead()) {
             configFileToUse = pubConfig;
         }
 
         if (configFileToUse != null) {
+            long currentModTime = configFileToUse.lastModified();
+            if (cachedHookConfig != null && currentModTime == lastConfigFileModTime) {
+                return cachedHookConfig;
+            }
+            
+            AppConfig config = new AppConfig();
             try (FileInputStream fis = new FileInputStream(configFileToUse);
                  BufferedReader br = new BufferedReader(new InputStreamReader(fis))) {
                 StringBuilder sb = new StringBuilder();
@@ -108,41 +114,37 @@ public class AppConfig {
                     config.mediaPaths.add(targetMedia.getAbsolutePath());
                     config.mediaTypes.add(mediaType);
                     config.selectedIndex = 0;
+                    
+                    lastConfigFileModTime = currentModTime;
+                    cachedHookConfig = config;
                     return config;
                 }
             } catch (Exception ignored) {}
         }
 
+        AppConfig fallbackConfig = new AppConfig();
         File[] candidateDirs = new File[]{new File(activeDir), new File(BASE_DIR)};
         for (File dir : candidateDirs) {
             if (!dir.exists() || !dir.canRead()) continue;
             File vid = new File(dir, "virtual.mp4");
             if (vid.exists() && vid.canRead()) {
-                config.enabled = true;
-                config.mediaPaths.add(vid.getAbsolutePath());
-                config.mediaTypes.add("VIDEO");
-                config.selectedIndex = 0;
-                return config;
+                fallbackConfig.enabled = true;
+                fallbackConfig.mediaPaths.add(vid.getAbsolutePath());
+                fallbackConfig.mediaTypes.add("VIDEO");
+                fallbackConfig.selectedIndex = 0;
+                return fallbackConfig;
             }
             File img = new File(dir, "virtual.jpg");
             if (img.exists() && img.canRead()) {
-                config.enabled = true;
-                config.mediaPaths.add(img.getAbsolutePath());
-                config.mediaTypes.add("IMAGE");
-                config.selectedIndex = 0;
-                return config;
-            }
-            File bmp = new File(dir, "1000.bmp");
-            if (bmp.exists() && bmp.canRead()) {
-                config.enabled = true;
-                config.mediaPaths.add(bmp.getAbsolutePath());
-                config.mediaTypes.add("IMAGE");
-                config.selectedIndex = 0;
-                return config;
+                fallbackConfig.enabled = true;
+                fallbackConfig.mediaPaths.add(img.getAbsolutePath());
+                fallbackConfig.mediaTypes.add("IMAGE");
+                fallbackConfig.selectedIndex = 0;
+                return fallbackConfig;
             }
         }
-        config.enabled = false;
-        return config;
+        fallbackConfig.enabled = false;
+        return fallbackConfig;
     }
 
     public static AppConfig load(Context context) {

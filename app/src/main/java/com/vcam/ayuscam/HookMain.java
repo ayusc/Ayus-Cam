@@ -60,11 +60,10 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private static GLVideoRenderer glVideoRenderer;
     private static GLVideoRenderer glVideoRenderer_1 = null;
-    private static GLVideoRenderer dataRenderer = null;
-    private static GLVideoRenderer dataRenderer_1 = null;
     
     public static volatile byte[] data_buffer = null;
     private static VideoToFrames dataDecoder = null;
+    private static VideoToFrames dataDecoder_1 = null;
 
     private static Surface c2_reader_Surface = null;
     private static Surface c2_reader_Surface_1 = null;
@@ -74,15 +73,8 @@ public class HookMain implements IXposedHookLoadPackage {
     private static Surface activePreviewSurface_1 = null;
     private static Surface currentPlayingSurface = null;
 
-    private static AppConfig cachedConfig = null;
-    private static long lastCheckTime = 0;
-
     public static AppConfig getLiveConfig() {
-        if (cachedConfig == null || (System.currentTimeMillis() - lastCheckTime > 50)) {
-            cachedConfig = AppConfig.loadForHook(video_path);
-            lastCheckTime = System.currentTimeMillis();
-        }
-        return cachedConfig;
+        return AppConfig.loadForHook(video_path);
     }
 
     private static boolean isSubstitutionActive() {
@@ -213,7 +205,6 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
-        // --- Prevent App Crashes from ImageReader NPE ---
         try {
             XposedHelpers.findAndHookMethod(ImageReader.class, "setOnImageAvailableListener", 
                 ImageReader.OnImageAvailableListener.class, Handler.class, new XC_MethodHook() {
@@ -357,6 +348,7 @@ public class HookMain implements IXposedHookLoadPackage {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
                     stopMediaPlayback();
+                    if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
                 }
             });
         } catch (Throwable ignored) {}
@@ -435,10 +427,10 @@ public class HookMain implements IXposedHookLoadPackage {
 
                         if (originalSurface.equals(c2_reader_Surface)) {
                             c2_reader_Surface = null;
-                            if (dataRenderer != null) { dataRenderer.release(); dataRenderer = null; }
+                            if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
                         } else if (originalSurface.equals(c2_reader_Surface_1)) {
                             c2_reader_Surface_1 = null;
-                            if (dataRenderer_1 != null) { dataRenderer_1.release(); dataRenderer_1 = null; }
+                            if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
                         }
                     }
                     param.args[0] = getFakeSurface();
@@ -456,16 +448,21 @@ public class HookMain implements IXposedHookLoadPackage {
                         glVideoRenderer_1.start();
                     }
                     
-                    if (c2_reader_Surface != null && dataRenderer == null) {
+                    if (c2_reader_Surface != null && dataDecoder == null) {
                         if ("VIDEO".equals(getLiveConfig().getActiveMediaType())) {
-                            dataRenderer = new GLVideoRenderer(c2_reader_Surface, getLiveConfig().getActiveMediaPath());
-                            dataRenderer.start();
+                            dataDecoder = new VideoToFrames();
+                            dataDecoder.setSaveFrames(VideoToFrames.OutputImageFormat.NV21);
+                            dataDecoder.setSurface(c2_reader_Surface);
+                            dataDecoder.decode(getLiveConfig().getActiveMediaPath());
                         }
                     }
-                    if (c2_reader_Surface_1 != null && dataRenderer_1 == null) {
+                    
+                    if (c2_reader_Surface_1 != null && dataDecoder_1 == null) {
                         if ("VIDEO".equals(getLiveConfig().getActiveMediaType())) {
-                            dataRenderer_1 = new GLVideoRenderer(c2_reader_Surface_1, getLiveConfig().getActiveMediaPath());
-                            dataRenderer_1.start();
+                            dataDecoder_1 = new VideoToFrames();
+                            dataDecoder_1.setSaveFrames(VideoToFrames.OutputImageFormat.NV21);
+                            dataDecoder_1.setSurface(c2_reader_Surface_1);
+                            dataDecoder_1.decode(getLiveConfig().getActiveMediaPath());
                         }
                     }
                 }
@@ -507,6 +504,12 @@ public class HookMain implements IXposedHookLoadPackage {
                         dataDecoder = new VideoToFrames();
                         dataDecoder.setSaveFrames(VideoToFrames.OutputImageFormat.NV21);
                         dataDecoder.decode(config.getActiveMediaPath());
+                        
+                        int retries = 0;
+                        while (data_buffer == null && retries < 25) {
+                            try { Thread.sleep(40); } catch (Exception ignored) {}
+                            retries++;
+                        }
                     }
                 } else if ("IMAGE".equals(config.getActiveMediaType())) {
                     if (data_buffer == null) {
@@ -552,9 +555,8 @@ public class HookMain implements IXposedHookLoadPackage {
                     stopMediaPlayback();
                     if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
                     
-                    if (dataRenderer != null) { dataRenderer.release(); dataRenderer = null; }
-                    if (dataRenderer_1 != null) { dataRenderer_1.release(); dataRenderer_1 = null; }
                     if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
+                    if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
                 }
             };
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onClosed", CameraDevice.class, cleanupHook);
@@ -578,9 +580,8 @@ public class HookMain implements IXposedHookLoadPackage {
                     stopMediaPlayback();
                     if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
                     
-                    if (dataRenderer != null) { dataRenderer.release(); dataRenderer = null; }
-                    if (dataRenderer_1 != null) { dataRenderer_1.release(); dataRenderer_1 = null; }
                     if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
+                    if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
                 }
             });
         } catch (Throwable ignored) {}
@@ -940,7 +941,6 @@ public class HookMain implements IXposedHookLoadPackage {
                 }
             }
 
-            long lastCheckMod = 0;
             AppConfig localConfig = getLiveConfig();
             boolean wasPaused = localConfig.isPaused;
             float wasSpeed = localConfig.speed;
@@ -957,27 +957,24 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
                 }
 
-                if (System.currentTimeMillis() - lastCheckMod > 50) {
-                    localConfig = getLiveConfig();
-                    lastCheckMod = System.currentTimeMillis();
-                    if (mMediaPlayer != null) {
-                        if (localConfig.isPaused && !wasPaused) {
-                            mMediaPlayer.pause();
-                            wasPaused = true;
-                        } else if (!localConfig.isPaused && wasPaused) {
-                            mMediaPlayer.start();
-                            wasPaused = false;
-                        }
-                        mMediaPlayer.setVolume(localConfig.volume / 100f, localConfig.volume / 100f);
+                localConfig = getLiveConfig();
+                if (mMediaPlayer != null) {
+                    if (localConfig.isPaused && !wasPaused) {
+                        mMediaPlayer.pause();
+                        wasPaused = true;
+                    } else if (!localConfig.isPaused && wasPaused) {
+                        mMediaPlayer.start();
+                        wasPaused = false;
+                    }
+                    mMediaPlayer.setVolume(localConfig.volume / 100f, localConfig.volume / 100f);
 
-                        if (localConfig.speed != wasSpeed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            try {
-                                android.media.PlaybackParams pp = mMediaPlayer.getPlaybackParams();
-                                pp.setSpeed(localConfig.speed);
-                                mMediaPlayer.setPlaybackParams(pp);
-                            } catch (Exception ignored) {}
-                            wasSpeed = localConfig.speed;
-                        }
+                    if (localConfig.speed != wasSpeed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            android.media.PlaybackParams pp = mMediaPlayer.getPlaybackParams();
+                            pp.setSpeed(localConfig.speed);
+                            mMediaPlayer.setPlaybackParams(pp);
+                        } catch (Exception ignored) {}
+                        wasSpeed = localConfig.speed;
                     }
                 }
 
