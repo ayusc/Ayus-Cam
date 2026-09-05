@@ -130,7 +130,7 @@
                     android:layout_height="wrap_content"
                     android:valueFrom="0"
                     android:valueTo="200"
-                    app:stepSize="1"
+                    android:stepSize="1"
                     app:thumbColor="@color/accent_red"
                     app:trackColorActive="@color/accent_red"
                     app:trackColorInactive="@color/card_stroke" />
@@ -161,7 +161,7 @@
                     android:layout_height="wrap_content"
                     android:valueFrom="0"
                     android:valueTo="100"
-                    app:stepSize="1"
+                    android:stepSize="1"
                     app:thumbColor="@color/accent_red"
                     app:trackColorActive="@color/accent_red"
                     app:trackColorInactive="@color/card_stroke" />
