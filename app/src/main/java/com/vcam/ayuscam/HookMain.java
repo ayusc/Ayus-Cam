@@ -90,6 +90,19 @@ public class HookMain implements IXposedHookLoadPackage {
         return f.exists() && f.canRead();
     }
 
+    // Helper to safely clean up all media players and decoders for a clean state
+    private static synchronized void resetState() {
+        activePreviewSurface = null;
+        activePreviewSurface_1 = null;
+        currentPlayingSurface = null;
+        c2_reader_Surface = null;
+        c2_reader_Surface_1 = null;
+        stopMediaPlayback();
+        if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
+        if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
+        if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
+    }
+
     // Helper to safely recreate the fake surface
     private static synchronized void recreateFakeSurface() {
         if (fake_SurfaceTexture != null) {
@@ -430,6 +443,7 @@ public class HookMain implements IXposedHookLoadPackage {
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!isSubstitutionActive()) return;
                     Surface originalSurface = (Surface) param.args[0];
+                    
                     if (originalSurface != null) {
                         if (originalSurface.equals(activePreviewSurface)) {
                             activePreviewSurface = null;
@@ -447,7 +461,10 @@ public class HookMain implements IXposedHookLoadPackage {
                             if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
                         }
                     }
-                    param.args[0] = getFakeSurface();
+                    
+                    // FATAL BUG FIXED: Do NOT modify param.args[0] here. 
+                    // Let the original method remove the original surface (which was never actually added anyway).
+                    // If we override it with getFakeSurface(), the builder loses its only target and crashes the pipeline!
                 }
             });
 
@@ -556,6 +573,7 @@ public class HookMain implements IXposedHookLoadPackage {
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onOpened", CameraDevice.class, new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
+                    resetState();
                     recreateFakeSurface();
                     hookCamera2Sessions(((CameraDevice) param.args[0]).getClass());
                 }
@@ -564,20 +582,11 @@ public class HookMain implements IXposedHookLoadPackage {
             XC_MethodHook cleanupHook = new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    activePreviewSurface = null;
-                    activePreviewSurface_1 = null;
-                    currentPlayingSurface = null;
-                    c2_reader_Surface = null;
-                    c2_reader_Surface_1 = null;
-                    stopMediaPlayback();
-                    if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
-                    
-                    if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
-                    if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
-                    
+                    resetState();
                     recreateFakeSurface();
                 }
             };
+            
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onClosed", CameraDevice.class, cleanupHook);
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onDisconnected", CameraDevice.class, cleanupHook);
         } catch (Throwable ignored) {}
@@ -585,21 +594,12 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private void hookCamera2Sessions(Class<?> deviceClass) {
         if (!hooked_classes.add(deviceClass)) return;
+        
         try {
             XposedHelpers.findAndHookMethod(deviceClass, "close", new XC_MethodHook() {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
-                    activePreviewSurface = null;
-                    activePreviewSurface_1 = null;
-                    currentPlayingSurface = null;
-                    c2_reader_Surface = null;
-                    c2_reader_Surface_1 = null;
-                    stopMediaPlayback();
-                    if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
-                    
-                    if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
-                    if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
-                    
+                    resetState();
                     recreateFakeSurface();
                 }
             });
