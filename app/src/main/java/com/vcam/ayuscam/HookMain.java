@@ -2,6 +2,7 @@ package com.vcam.ayuscam;
 
 import android.app.Application;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -29,7 +30,6 @@ import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.view.Surface;
-
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -43,7 +43,6 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -54,20 +53,19 @@ public class HookMain implements IXposedHookLoadPackage {
     private static Surface fake_Surface;
     private static SurfaceTexture fake_SurfaceTexture;
     public static Context toast_content;
-
     public static String video_path = Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/";
 
     private static Thread renderThread;
     private static volatile boolean renderActive = false;
+
     private static GLVideoRenderer glVideoRenderer;
     private static GLVideoRenderer glVideoRenderer_1 = null;
-
     public static volatile byte[] data_buffer = null;
     private static VideoToFrames dataDecoder;
     private static VideoToFrames dataDecoder_1 = null;
+
     private static Surface c2_reader_Surface = null;
     private static Surface c2_reader_Surface_1 = null;
-
     private static final Set<Class<?>> hooked_classes = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static final Set<Surface> imageReaderSurfaces = Collections.newSetFromMap(new ConcurrentHashMap<>());
     private static Surface activePreviewSurface = null;
@@ -78,7 +76,7 @@ public class HookMain implements IXposedHookLoadPackage {
     private static AppConfig cachedConfig = null;
     private static long lastCheckTime = 0;
 
-    private static AppConfig getLiveConfig() {
+    public static AppConfig getLiveConfig() {
         if (cachedConfig == null || (System.currentTimeMillis() - lastCheckTime > 500)) {
             cachedConfig = AppConfig.loadForHook(video_path);
             lastCheckTime = System.currentTimeMillis();
@@ -168,7 +166,6 @@ public class HookMain implements IXposedHookLoadPackage {
             }
             return;
         }
-
         if (privateDir != null) {
             video_path = privateDir;
         } else {
@@ -202,6 +199,12 @@ public class HookMain implements IXposedHookLoadPackage {
                             XposedBridge.log("AyusCam: " + e.toString());
                         }
                         if (toast_content != null) {
+                            try {
+                                Intent intent = new Intent("com.vcam.ayuscam.REGISTER_PACKAGE");
+                                intent.putExtra("package_name", lpparam.packageName);
+                                intent.setPackage("com.vcam.ayuscam");
+                                toast_content.sendBroadcast(intent);
+                            } catch (Exception ignored) {}
                             resolveVideoPath(toast_content);
                         }
                     }
@@ -209,7 +212,6 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
-        // --- ImageReader Safety Guards: Prevents 0x1 vs 0x23 Crashes in GPay ---
         try {
             XC_MethodHook readerHook = new XC_MethodHook() {
                 @Override
@@ -256,7 +258,6 @@ public class HookMain implements IXposedHookLoadPackage {
             XposedHelpers.findAndHookMethod(ImageReader.class, "acquireNextImage", guardHook);
         } catch (Throwable ignored) {}
 
-        // --- Camera 1 API Hooks ---
         String[] callbackMethods = {"setPreviewCallbackWithBuffer", "setPreviewCallback", "setOneShotPreviewCallback"};
         for (String method : callbackMethods) {
             try {
@@ -379,7 +380,6 @@ public class HookMain implements IXposedHookLoadPackage {
                     });
         } catch (Throwable ignored) {}
 
-        // --- Camera 2 CaptureRequest Hooks ---
         try {
             XposedHelpers.findAndHookMethod(CaptureRequest.Builder.class, "addTarget", Surface.class, new XC_MethodHook() {
                 @Override
@@ -387,7 +387,6 @@ public class HookMain implements IXposedHookLoadPackage {
                     if (!isSubstitutionActive()) return;
                     Surface originalSurface = (Surface) param.args[0];
                     if (originalSurface == null) return;
-
                     classifySurface(originalSurface);
                     param.args[0] = getFakeSurface();
                 }
@@ -425,13 +424,11 @@ public class HookMain implements IXposedHookLoadPackage {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!isSubstitutionActive()) return;
-
                     if (activePreviewSurface != null) startMediaPlayback(activePreviewSurface);
                     if (activePreviewSurface_1 != null && glVideoRenderer_1 == null) {
                         glVideoRenderer_1 = new GLVideoRenderer(activePreviewSurface_1, getLiveConfig().getActiveMediaPath());
                         glVideoRenderer_1.start();
                     }
-
                     if (c2_reader_Surface != null) startDataPlayback(c2_reader_Surface);
                     if (c2_reader_Surface_1 != null && dataDecoder_1 == null) {
                         dataDecoder_1 = new VideoToFrames();
@@ -473,7 +470,6 @@ public class HookMain implements IXposedHookLoadPackage {
             protected void beforeHookedMethod(MethodHookParam paramd) {
                 if (!isSubstitutionActive()) return;
                 AppConfig config = getLiveConfig();
-
                 if ("VIDEO".equals(config.getActiveMediaType())) {
                     if (dataDecoder == null) {
                         dataDecoder = new VideoToFrames();
@@ -494,7 +490,6 @@ public class HookMain implements IXposedHookLoadPackage {
                         } catch (Exception ignored) {}
                     }
                 }
-
                 if (data_buffer != null && paramd.args[0] != null) {
                     byte[] target = (byte[]) paramd.args[0];
                     System.arraycopy(data_buffer, 0, target, 0, Math.min(data_buffer.length, target.length));
@@ -506,7 +501,6 @@ public class HookMain implements IXposedHookLoadPackage {
     private static void startDataPlayback(Surface target) {
         if (target == null || !target.isValid()) return;
         if (target == currentDataSurface && dataDecoder != null) return;
-
         currentDataSurface = target;
         stopDataPlayback();
 
@@ -544,19 +538,16 @@ public class HookMain implements IXposedHookLoadPackage {
                     activePreviewSurface = null;
                     activePreviewSurface_1 = null;
                     currentPlayingSurface = null;
-
                     c2_reader_Surface = null;
                     c2_reader_Surface_1 = null;
                     currentDataSurface = null;
 
                     stopMediaPlayback();
                     if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
-
                     stopDataPlayback();
                     if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
                 }
             };
-
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onClosed", CameraDevice.class, cleanupHook);
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onDisconnected", CameraDevice.class, cleanupHook);
         } catch (Throwable ignored) {}
@@ -575,6 +566,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     c2_reader_Surface = null;
                     c2_reader_Surface_1 = null;
                     currentDataSurface = null;
+
                     stopMediaPlayback();
                     if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
                     stopDataPlayback();
@@ -599,7 +591,7 @@ public class HookMain implements IXposedHookLoadPackage {
         };
 
         try { XposedHelpers.findAndHookMethod(deviceClass, "createCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, listSessionHook); } catch (Throwable ignored) {}
-
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try { XposedHelpers.findAndHookMethod(deviceClass, "createConstrainedHighSpeedCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, listSessionHook); } catch (Throwable ignored) {}
             try {
@@ -678,8 +670,8 @@ public class HookMain implements IXposedHookLoadPackage {
     private static void startMediaPlayback(Surface targetSurface) {
         if (targetSurface == null || !targetSurface.isValid()) return;
         if (targetSurface == currentPlayingSurface) return;
-
         currentPlayingSurface = targetSurface;
+
         stopMediaPlayback();
 
         AppConfig config = getLiveConfig();
@@ -697,7 +689,6 @@ public class HookMain implements IXposedHookLoadPackage {
             try { renderThread.join(200); } catch (Exception ignored) {}
             renderThread = null;
         }
-
         if (glVideoRenderer != null) {
             glVideoRenderer.release();
             glVideoRenderer = null;
@@ -710,6 +701,7 @@ public class HookMain implements IXposedHookLoadPackage {
             AppConfig localConfig = initialConfig;
             Bitmap activeBitmap = null;
             String loadedPath = "";
+
             while (renderActive) {
                 try {
                     localConfig = getLiveConfig();
@@ -722,20 +714,23 @@ public class HookMain implements IXposedHookLoadPackage {
                                 String targetPath = localConfig.getActiveMediaPath();
                                 if (activeBitmap == null || !loadedPath.equals(targetPath)) {
                                     if (activeBitmap != null) activeBitmap.recycle();
-
                                     try (FileInputStream fis = new FileInputStream(targetPath)) {
                                         activeBitmap = BitmapFactory.decodeStream(fis);
                                     }
                                     loadedPath = targetPath;
                                 }
+
                                 canvas.drawColor(Color.BLACK);
+
                                 if (activeBitmap != null && localConfig.zoom > 0 && !localConfig.isPaused) {
                                     int viewW = canvas.getWidth();
                                     int viewH = canvas.getHeight();
                                     int bmpW = activeBitmap.getWidth();
                                     int bmpH = activeBitmap.getHeight();
+
                                     Matrix m = new Matrix();
                                     m.postTranslate(-bmpW / 2f, -bmpH / 2f);
+
                                     float scaleX = 1f, scaleY = 1f;
                                     if ("STRETCH".equals(localConfig.scaleMode)) {
                                         scaleX = (float) viewW / bmpW;
@@ -752,6 +747,7 @@ public class HookMain implements IXposedHookLoadPackage {
                                     m.postScale(zoom, zoom);
                                     m.postRotate(localConfig.rotation);
                                     m.postTranslate(viewW / 2f + localConfig.panX, viewH / 2f + localConfig.panY);
+
                                     canvas.drawBitmap(activeBitmap, m, null);
                                 }
                             } finally {
@@ -771,11 +767,14 @@ public class HookMain implements IXposedHookLoadPackage {
         try (FileInputStream fis = new FileInputStream(imagePath)) {
             Bitmap original = BitmapFactory.decodeStream(fis);
             if (original == null) return null;
+
             Bitmap outBmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
             Canvas canvas = new Canvas(outBmp);
             canvas.drawColor(Color.BLACK);
+
             Matrix m = new Matrix();
             m.postTranslate(-original.getWidth() / 2f, -original.getHeight() / 2f);
+
             float scaleX = 1f, scaleY = 1f;
             if ("STRETCH".equals(config.scaleMode)) {
                 scaleX = (float) targetWidth / original.getWidth();
@@ -788,10 +787,12 @@ public class HookMain implements IXposedHookLoadPackage {
                 scaleY = baseScale;
             }
             m.postScale(scaleX, scaleY);
+
             float zoom = config.zoom / 100f;
             m.postScale(zoom, zoom);
             m.postRotate(config.rotation);
             m.postTranslate(targetWidth / 2f + config.panX, targetHeight / 2f + config.panY);
+
             canvas.drawBitmap(original, m, null);
             original.recycle();
             return outBmp;
@@ -805,15 +806,18 @@ public class HookMain implements IXposedHookLoadPackage {
         bitmap.getPixels(pixels, 0, width, 0, 0, Math.min(width, bitmap.getWidth()), Math.min(height, bitmap.getHeight()));
         int len = width * height;
         byte[] yuv = new byte[len * 3 / 2];
+
         for (int i = 0; i < height; i++) {
             for (int j = 0; j < width; j++) {
                 int rgb = pixels[i * width + j] & 0x00FFFFFF;
                 int r = (rgb >> 16) & 0xFF;
                 int g = (rgb >> 8) & 0xFF;
                 int b = rgb & 0xFF;
+
                 int y = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
                 int u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
                 int v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
+
                 yuv[i * width + j] = (byte) Math.max(16, Math.min(y, 255));
                 if ((i & 1) == 0 && (j & 1) == 0) {
                     yuv[len + (i >> 1) * width + j] = (byte) Math.max(0, Math.min(v, 255));
@@ -831,7 +835,6 @@ public class HookMain implements IXposedHookLoadPackage {
         private EGLDisplay mEGLDisplay = EGL14.EGL_NO_DISPLAY;
         private EGLContext mEGLContext = EGL14.EGL_NO_CONTEXT;
         private EGLSurface mEGLSurface = EGL14.EGL_NO_SURFACE;
-
         private int mProgram;
         private int mTextureID;
         private SurfaceTexture mSurfaceTexture;
@@ -869,7 +872,6 @@ public class HookMain implements IXposedHookLoadPackage {
                 -1.0f,  1.0f, 0, 0.f, 1.f,
                  1.0f,  1.0f, 0, 1.f, 1.f,
         };
-
         private FloatBuffer mTriangleVertices;
 
         public GLVideoRenderer(Surface targetSurface, String videoPath) {
@@ -884,18 +886,16 @@ public class HookMain implements IXposedHookLoadPackage {
         public void run() {
             mRunning = true;
             initEGL();
-
             if (!mRunning) {
                 startDirectFallbackPlayer();
                 return;
             }
             initGL();
-
             mSurfaceTexture = new SurfaceTexture(mTextureID);
             mSurfaceTexture.setOnFrameAvailableListener(this);
             mInputSurface = new Surface(mSurfaceTexture);
-
             mMediaPlayer = new MediaPlayer();
+
             FileInputStream fis = null;
             try {
                 mMediaPlayer.setSurface(mInputSurface);
@@ -904,6 +904,13 @@ public class HookMain implements IXposedHookLoadPackage {
                 mMediaPlayer.setLooping(true);
                 AppConfig startCfg = getLiveConfig();
                 mMediaPlayer.setVolume(startCfg.volume / 100f, startCfg.volume / 100f);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        android.media.PlaybackParams pp = mMediaPlayer.getPlaybackParams();
+                        pp.setSpeed(startCfg.speed);
+                        mMediaPlayer.setPlaybackParams(pp);
+                    } catch (Exception ignored) {}
+                }
                 mMediaPlayer.prepare();
                 if (!startCfg.isPaused) mMediaPlayer.start();
             } catch (Exception e) {
@@ -926,6 +933,7 @@ public class HookMain implements IXposedHookLoadPackage {
             long lastCheckMod = 0;
             AppConfig localConfig = getLiveConfig();
             boolean wasPaused = localConfig.isPaused;
+            float wasSpeed = localConfig.speed;
 
             while (mRunning) {
                 synchronized (mFrameSyncObject) {
@@ -942,7 +950,6 @@ public class HookMain implements IXposedHookLoadPackage {
                 if (System.currentTimeMillis() - lastCheckMod > 500) {
                     localConfig = getLiveConfig();
                     lastCheckMod = System.currentTimeMillis();
-
                     if (mMediaPlayer != null) {
                         if (localConfig.isPaused && !wasPaused) {
                             mMediaPlayer.pause();
@@ -952,6 +959,15 @@ public class HookMain implements IXposedHookLoadPackage {
                             wasPaused = false;
                         }
                         mMediaPlayer.setVolume(localConfig.volume / 100f, localConfig.volume / 100f);
+
+                        if (localConfig.speed != wasSpeed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                android.media.PlaybackParams pp = mMediaPlayer.getPlaybackParams();
+                                pp.setSpeed(localConfig.speed);
+                                mMediaPlayer.setPlaybackParams(pp);
+                            } catch (Exception ignored) {}
+                            wasSpeed = localConfig.speed;
+                        }
                     }
                 }
 
@@ -981,6 +997,13 @@ public class HookMain implements IXposedHookLoadPackage {
                 mMediaPlayer.setLooping(true);
                 AppConfig cfg = getLiveConfig();
                 mMediaPlayer.setVolume(cfg.volume / 100f, cfg.volume / 100f);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    try {
+                        android.media.PlaybackParams pp = mMediaPlayer.getPlaybackParams();
+                        pp.setSpeed(cfg.speed);
+                        mMediaPlayer.setPlaybackParams(pp);
+                    } catch (Exception ignored) {}
+                }
                 mMediaPlayer.prepare();
                 if (!cfg.isPaused) mMediaPlayer.start();
             } catch (Exception e) {
@@ -1006,6 +1029,7 @@ public class HookMain implements IXposedHookLoadPackage {
             int[] height = new int[1];
             EGL14.eglQuerySurface(mEGLDisplay, mEGLSurface, EGL14.EGL_WIDTH, width, 0);
             EGL14.eglQuerySurface(mEGLDisplay, mEGLSurface, EGL14.EGL_HEIGHT, height, 0);
+
             if (width[0] == 0 || height[0] == 0) return;
 
             GLES20.glViewport(0, 0, width[0], height[0]);
@@ -1036,6 +1060,7 @@ public class HookMain implements IXposedHookLoadPackage {
 
             float[] mvpMatrix = new float[16];
             android.opengl.Matrix.setIdentityM(mvpMatrix, 0);
+
             float glPanX = config.panX / 500f;
             float glPanY = -config.panY / 500f;
             android.opengl.Matrix.translateM(mvpMatrix, 0, glPanX, glPanY, 0f);
@@ -1112,7 +1137,6 @@ public class HookMain implements IXposedHookLoadPackage {
             if (mEGLSurface == null || mEGLSurface == EGL14.EGL_NO_SURFACE) {
                 mRunning = false; return;
             }
-
             EGL14.eglMakeCurrent(mEGLDisplay, mEGLSurface, mEGLSurface, mEGLContext);
         }
 
@@ -1124,13 +1148,11 @@ public class HookMain implements IXposedHookLoadPackage {
             GLES20.glAttachShader(mProgram, vertexShader);
             GLES20.glAttachShader(mProgram, fragmentShader);
             GLES20.glLinkProgram(mProgram);
-
             GLES20.glDisable(GLES20.GL_CULL_FACE);
 
             int[] textures = new int[1];
             GLES20.glGenTextures(1, textures, 0);
             mTextureID = textures[0];
-
             GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, mTextureID);
             GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST);
             GLES20.glTexParameterf(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);

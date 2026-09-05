@@ -8,13 +8,11 @@ import android.media.MediaCodecInfo;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.view.Surface;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.concurrent.LinkedBlockingQueue;
-
 import de.robv.android.xposed.XposedBridge;
 
 public class VideoToFrames implements Runnable {
@@ -27,6 +25,8 @@ public class VideoToFrames implements Runnable {
     private String videoFilePath;
     private Thread childThread;
     private Surface play_surf;
+
+    public volatile float speed = 1.0f;
 
     public enum OutputImageFormat {
         I420, NV21, JPEG
@@ -74,7 +74,6 @@ public class VideoToFrames implements Runnable {
             File videoFile = new File(videoFilePath);
             if (!videoFile.exists()) return;
             extractor = new MediaExtractor();
-
             fis = new FileInputStream(videoFile);
             extractor.setDataSource(fis.getFD());
 
@@ -91,6 +90,7 @@ public class VideoToFrames implements Runnable {
 
             decoder.configure(mediaFormat, play_surf, null, 0);
             decoder.start();
+
             while (!stopDecode) {
                 decodeFramesToImage(decoder, extractor);
                 extractor.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC);
@@ -115,6 +115,7 @@ public class VideoToFrames implements Runnable {
         long startWhen = 0;
         boolean is_first = false;
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+
         while (!sawOutputEOS && !stopDecode) {
             if (!sawInputEOS) {
                 int inputBufferId = decoder.dequeueInputBuffer(10000);
@@ -153,7 +154,11 @@ public class VideoToFrames implements Runnable {
                             }
                         } catch (Exception ignored) {}
                     }
-                    long sleepTime = (info.presentationTimeUs / 1000) - (System.currentTimeMillis() - startWhen);
+                    
+                    this.speed = HookMain.getLiveConfig().speed;
+                    long ptsMs = info.presentationTimeUs / 1000;
+                    long sleepTime = (long)(ptsMs / speed) - (System.currentTimeMillis() - startWhen);
+
                     if (sleepTime > 0) {
                         try { Thread.sleep(sleepTime); } catch (InterruptedException ignored) {}
                     }

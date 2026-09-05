@@ -32,9 +32,15 @@
         </activity>
 
         <service 
-            android:name=".FloatingWindowService" 
-            android:enabled="true" 
-            android:exported="false"/>
+             android:name=".FloatingWindowService" 
+             android:enabled="true" 
+             android:exported="false"/>
+
+        <receiver android:name=".PackageReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="com.vcam.ayuscam.REGISTER_PACKAGE" />
+            </intent-filter>
+        </receiver>
 
         <meta-data
             android:name="xposedmodule"
@@ -45,5 +51,6 @@
         <meta-data
             android:name="xposedminversion"
             android:value="51" />
+
     </application>
 </manifest>

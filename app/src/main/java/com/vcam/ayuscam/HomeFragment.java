@@ -25,7 +25,6 @@ import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.PickVisualMediaRequest;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -33,16 +32,13 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.widget.NestedScrollView;
 import androidx.fragment.app.Fragment;
-
 import com.google.android.material.button.MaterialButton;
-
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 
 public class HomeFragment extends Fragment implements TextureView.SurfaceTextureListener {
-
     private AppConfig config;
     private TextureView previewTextureView;
     private ImageView previewImageView;
@@ -54,12 +50,11 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private MediaPlayer mediaPlayer;
     private Camera mCamera;
     private int currentCameraId = Camera.CameraInfo.CAMERA_FACING_BACK;
-
     private static boolean isPreviewRunning = false;
 
     private final ActivityResultLauncher<PickVisualMediaRequest> pickPhotoLauncher = registerForActivityResult(
             new ActivityResultContracts.PickVisualMedia(), uri -> handleMediaResult(uri, "IMAGE"));
-            
+
     private final ActivityResultLauncher<PickVisualMediaRequest> pickVideoLauncher = registerForActivityResult(
             new ActivityResultContracts.PickVisualMedia(), uri -> handleMediaResult(uri, "VIDEO"));
 
@@ -69,14 +64,14 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
         View root = inflater.inflate(R.layout.fragment_home, container, false);
         config = AppConfig.load();
-        
+
         previewTextureView = root.findViewById(R.id.preview_texture_view);
         previewImageView = root.findViewById(R.id.preview_image_view);
         tvPreviewStatus = root.findViewById(R.id.tv_preview_status);
         tvEmptyMedia = root.findViewById(R.id.tv_empty_media);
         tvBadgeDaemon = root.findViewById(R.id.tv_badge_daemon);
         tvBadgePreviewState = root.findViewById(R.id.tv_badge_preview_state);
-        
+
         btnTogglePreview = root.findViewById(R.id.btn_toggle_preview);
         btnToggleVirtualCam = root.findViewById(R.id.btn_toggle_virtual_cam);
         btnPickPhoto = root.findViewById(R.id.btn_pick_photo);
@@ -126,7 +121,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             updateUI();
             restartPreviewMode();
         });
-        
+
         tvBadgePreviewState.setOnClickListener(v -> {
             isPreviewRunning = !isPreviewRunning;
             updateUI();
@@ -145,15 +140,14 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
         updateUI();
         restartPreviewMode();
-
         return root;
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        if ((previewTextureView != null && previewTextureView.isAvailable()) || 
-            (previewImageView != null && previewImageView.getVisibility() == View.VISIBLE)) {
+        if ((previewTextureView != null && previewTextureView.isAvailable()) ||
+             (previewImageView != null && previewImageView.getVisibility() == View.VISIBLE)) {
             restartPreviewMode();
         }
     }
@@ -164,38 +158,61 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         stopAllPreviews();
     }
 
-    private void handleMediaResult(Uri uri, String type) {
-        if (uri == null) return;
-
-        String displayName = "media_" + System.currentTimeMillis();
-        
+    private String extractRealName(Uri uri) {
+        String result = null;
         try (Cursor cursor = requireContext().getContentResolver().query(uri, null, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (nameIndex != -1) displayName = cursor.getString(nameIndex);
+                if (nameIndex != -1) result = cursor.getString(nameIndex);
             }
         } catch (Exception ignored) {}
+
+        if (result == null || result.matches("\\d+\\.\\w+") || result.matches("\\d+")) {
+            String path = uri.getPath();
+            if (path != null) {
+                int lastSlash = path.lastIndexOf('/');
+                if (lastSlash != -1 && lastSlash < path.length() - 1) {
+                    String possibleName = path.substring(lastSlash + 1);
+                    if (!possibleName.matches("\\d+") && !possibleName.matches("\\d+\\.\\w+")) {
+                        result = possibleName;
+                    }
+                }
+            }
+        }
+
+        if (result != null && (result.matches("\\d+\\.\\w+") || result.matches("\\d+"))) {
+            result = null; 
+        }
+        return result;
+    }
+
+    private void handleMediaResult(Uri uri, String type) {
+        if (uri == null) return;
         
+        String displayName = extractRealName(uri);
+        if (displayName == null) {
+            displayName = "Selected " + ("IMAGE".equals(type) ? "Photo" : "Video");
+        }
+
         File targetDir = new File(AppConfig.BASE_DIR);
         if (!targetDir.exists()) targetDir.mkdirs();
-        
+
         String ext = "IMAGE".equals(type) ? ".jpg" : ".mp4";
         File localFile = new File(targetDir, System.currentTimeMillis() + ext);
-        
+
         try (InputStream in = requireContext().getContentResolver().openInputStream(uri);
              OutputStream out = new FileOutputStream(localFile)) {
-             
+
             byte[] buf = new byte[8192];
             int len;
             while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
-            
+
             config.mediaPaths.add(localFile.getAbsolutePath());
             config.mediaTypes.add(type);
             config.mediaNames.add(displayName);
             config.selectedIndex = config.mediaPaths.size() - 1;
-            
+
             config.save();
-            
             updateUI();
             restartPreviewMode();
         } catch (Exception e) {
@@ -205,7 +222,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private void updateUI() {
         boolean isActive = config.enabled && new File(config.getActiveMediaPath()).exists();
-
         if (isActive) {
             tvBadgeDaemon.setText("  ACTIVE");
             tvBadgeDaemon.setTextColor(0xFF00E676);
@@ -233,7 +249,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private void renderMediaList() {
         llMediaList.removeAllViews();
-
         float density = getResources().getDisplayMetrics().density;
         int singleRowHeight = (int) (54 * density);
 
@@ -254,7 +269,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
         for (int i = 0; i < config.mediaPaths.size(); i++) {
             final int index = i;
-
             RelativeLayout row = new RelativeLayout(requireContext());
             LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, singleRowHeight);
             row.setLayoutParams(rowLp);
@@ -267,6 +281,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             LinearLayout leftContainer = new LinearLayout(requireContext());
             leftContainer.setOrientation(LinearLayout.HORIZONTAL);
             leftContainer.setGravity(Gravity.CENTER_VERTICAL);
+
             RelativeLayout.LayoutParams lpLeft = new RelativeLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             lpLeft.addRule(RelativeLayout.ALIGN_PARENT_START);
             lpLeft.addRule(RelativeLayout.START_OF, 1000 + index);
@@ -275,7 +290,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             boolean isImage = "IMAGE".equals(config.mediaTypes.get(i));
             icon.setImageResource(isImage ? android.R.drawable.ic_menu_gallery : android.R.drawable.ic_media_play);
             icon.setColorFilter(config.selectedIndex == index ? 0xFF00E676 : 0xFF8A909E);
-            
+
             LinearLayout.LayoutParams lpIcon = new LinearLayout.LayoutParams(36, 36);
             lpIcon.setMarginEnd(16);
             leftContainer.addView(icon, lpIcon);
@@ -294,6 +309,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             btnDelete.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
             btnDelete.setColorFilter(0xFFFF2A42);
             btnDelete.setBackgroundColor(Color.TRANSPARENT);
+
             RelativeLayout.LayoutParams lpRight = new RelativeLayout.LayoutParams(48, 48);
             lpRight.addRule(RelativeLayout.ALIGN_PARENT_END);
             lpRight.addRule(RelativeLayout.CENTER_VERTICAL);
@@ -331,7 +347,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
 
     private void restartPreviewMode() {
         stopAllPreviews();
-
         if (!isPreviewRunning) return;
 
         if (config.enabled && config.selectedIndex != -1) {
@@ -348,7 +363,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         if ("IMAGE".equals(config.getActiveMediaType())) {
             previewTextureView.setVisibility(View.GONE);
             previewImageView.setVisibility(View.VISIBLE);
-            
+
             Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
             if (bitmap != null && config.rotation != 0) {
                 Matrix m = new Matrix();
@@ -368,6 +383,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
     private void startRealCameraPreview() {
         previewImageView.setVisibility(View.GONE);
         previewTextureView.setVisibility(View.VISIBLE);
+
         if (previewTextureView.isAvailable()) {
             openPhysicalCamera(previewTextureView.getSurfaceTexture());
         }
@@ -378,7 +394,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             mCamera = Camera.open(currentCameraId);
             Camera.CameraInfo info = new Camera.CameraInfo();
             Camera.getCameraInfo(currentCameraId, info);
-            
+
             int rotation = requireActivity().getWindowManager().getDefaultDisplay().getRotation();
             int degrees = 0;
             switch (rotation) {
@@ -395,7 +411,6 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             } else { 
                 result = (info.orientation - degrees + 360) % 360;
             }
-
             mCamera.setDisplayOrientation(result);
             mCamera.setPreviewTexture(surfaceTexture);
             mCamera.startPreview();
@@ -412,6 +427,12 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
             mediaPlayer.setLooping(true);
             mediaPlayer.setVolume(config.volume / 100f, config.volume / 100f);
             
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                android.media.PlaybackParams pp = mediaPlayer.getPlaybackParams();
+                pp.setSpeed(config.speed);
+                mediaPlayer.setPlaybackParams(pp);
+            }
+
             mediaPlayer.setOnCompletionListener(mp -> {
                 mp.seekTo(0);
                 mp.start();

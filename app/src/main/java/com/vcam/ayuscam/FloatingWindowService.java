@@ -27,7 +27,6 @@ public class FloatingWindowService extends Service {
     private AppConfig config;
     private WindowManager.LayoutParams params;
 
-    // Receiver to update UI if changed from main app
     private final BroadcastReceiver syncReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -46,7 +45,6 @@ public class FloatingWindowService extends Service {
         super.onCreate();
         config = AppConfig.load();
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-
         ContextThemeWrapper ctx = new ContextThemeWrapper(this, R.style.Theme_VCAM);
         LayoutInflater inflater = LayoutInflater.from(ctx);
         floatingView = inflater.inflate(R.layout.layout_floating_window, null);
@@ -124,10 +122,8 @@ public class FloatingWindowService extends Service {
 
         iconContainer.setOnTouchListener(dragListener);
         panelHeader.setOnTouchListener(dragListener);
-
         windowManager.addView(floatingView, params);
 
-        // Register Sync Broadcast
         IntentFilter filter = new IntentFilter("com.vcam.ayuscam.UPDATE_UI");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(syncReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
@@ -146,7 +142,10 @@ public class FloatingWindowService extends Service {
         SeekBar seekZoom = floatingView.findViewById(R.id.seek_zoom);
         SeekBar seekRotate = floatingView.findViewById(R.id.seek_rotate);
         SeekBar seekVolume = floatingView.findViewById(R.id.seek_volume);
-        
+        SeekBar seekSpeed = floatingView.findViewById(R.id.seek_speed);
+
+        seekSpeed.setMax(7);
+
         seekZoom.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 if (fromUser) { config.zoom = progress; saveAndNotify(); }
@@ -175,6 +174,14 @@ public class FloatingWindowService extends Service {
             @Override public void onStartTrackingTouch(SeekBar seekBar) {}
             @Override public void onStopTrackingTouch(SeekBar seekBar) {}
         });
+
+        seekSpeed.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser) { config.speed = 0.25f + (progress * 0.25f); saveAndNotify(); }
+            }
+            @Override public void onStartTrackingTouch(SeekBar seekBar) {}
+            @Override public void onStopTrackingTouch(SeekBar seekBar) {}
+        });
     }
 
     private void setupButtons() {
@@ -186,6 +193,34 @@ public class FloatingWindowService extends Service {
         });
         floatingView.findViewById(R.id.btn_scale_fill).setOnClickListener(v -> {
             config.scaleMode = "FILL"; saveAndNotify();
+        });
+
+        floatingView.findViewById(R.id.btn_zoom_minus).setOnClickListener(v -> {
+            config.zoom = Math.max(0, config.zoom - 1); saveAndNotify();
+        });
+        floatingView.findViewById(R.id.btn_zoom_plus).setOnClickListener(v -> {
+            config.zoom = Math.min(200, config.zoom + 1); saveAndNotify();
+        });
+
+        floatingView.findViewById(R.id.btn_rotate_minus).setOnClickListener(v -> {
+            config.rotation = Math.max(0, config.rotation - 90); saveAndNotify();
+        });
+        floatingView.findViewById(R.id.btn_rotate_plus).setOnClickListener(v -> {
+            config.rotation = Math.min(270, config.rotation + 90); saveAndNotify();
+        });
+
+        floatingView.findViewById(R.id.btn_volume_minus).setOnClickListener(v -> {
+            config.volume = Math.max(0, config.volume - 1); saveAndNotify();
+        });
+        floatingView.findViewById(R.id.btn_volume_plus).setOnClickListener(v -> {
+            config.volume = Math.min(100, config.volume + 1); saveAndNotify();
+        });
+
+        floatingView.findViewById(R.id.btn_speed_minus).setOnClickListener(v -> {
+            config.speed = Math.max(0.25f, config.speed - 0.25f); saveAndNotify();
+        });
+        floatingView.findViewById(R.id.btn_speed_plus).setOnClickListener(v -> {
+            config.speed = Math.min(2.0f, config.speed + 0.25f); saveAndNotify();
         });
 
         floatingView.findViewById(R.id.btn_pan_up).setOnClickListener(v -> {
@@ -200,6 +235,7 @@ public class FloatingWindowService extends Service {
         floatingView.findViewById(R.id.btn_pan_right).setOnClickListener(v -> {
             if(config.zoom != 0) { config.panX += 10; saveAndNotify(); }
         });
+
         floatingView.findViewById(R.id.btn_play_pause).setOnClickListener(v -> {
             config.isPaused = !config.isPaused; saveAndNotify();
         });
@@ -210,14 +246,17 @@ public class FloatingWindowService extends Service {
         ((TextView) floatingView.findViewById(R.id.tv_zoom_val)).setText(config.zoom + "%");
 
         ((SeekBar) floatingView.findViewById(R.id.seek_rotate)).setProgress(config.rotation);
-        ((TextView) floatingView.findViewById(R.id.tv_rotate_val)).setText(config.rotation + "°");
+        ((TextView) floatingView.findViewById(R.id.tv_rotate_val)).setText(config.rotation + "\u00B0");
 
         ((SeekBar) floatingView.findViewById(R.id.seek_volume)).setProgress(config.volume);
         ((TextView) floatingView.findViewById(R.id.tv_volume_val)).setText(config.volume + "%");
 
+        ((SeekBar) floatingView.findViewById(R.id.seek_speed)).setProgress(Math.round((config.speed - 0.25f) / 0.25f));
+        ((TextView) floatingView.findViewById(R.id.tv_speed_val)).setText(String.format(java.util.Locale.US, "%.2fx", config.speed));
+
         ImageView playPauseIcon = floatingView.findViewById(R.id.icon_play_pause);
-        playPauseIcon.setImageResource(config.isPaused ? 
-            android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause);
+        playPauseIcon.setImageResource(config.isPaused ?
+             android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause);
 
         int activeColor = ContextCompat.getColor(this, R.color.accent_red);
         int inactiveColor = ContextCompat.getColor(this, R.color.inner_box_dark);
@@ -225,7 +264,7 @@ public class FloatingWindowService extends Service {
         MaterialButton btnFit = floatingView.findViewById(R.id.btn_scale_fit);
         MaterialButton btnStretch = floatingView.findViewById(R.id.btn_scale_stretch);
         MaterialButton btnFill = floatingView.findViewById(R.id.btn_scale_fill);
-        
+
         btnFit.setBackgroundTintList(ColorStateList.valueOf("FIT".equals(config.scaleMode) ? activeColor : inactiveColor));
         btnStretch.setBackgroundTintList(ColorStateList.valueOf("STRETCH".equals(config.scaleMode) ? activeColor : inactiveColor));
         btnFill.setBackgroundTintList(ColorStateList.valueOf("FILL".equals(config.scaleMode) ? activeColor : inactiveColor));

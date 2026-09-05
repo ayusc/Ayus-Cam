@@ -4,7 +4,6 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content">
 
-    <!-- Floating App Icon (Collapsed State) -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/floating_icon_container"
         android:layout_width="54dp"
@@ -21,13 +20,12 @@
             android:scaleType="centerCrop"/>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Expanded Control Panel (Smaller Scale) -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/floating_panel"
         android:layout_width="260dp"
         android:layout_height="wrap_content"
         android:visibility="gone"
-        app:cardBackgroundColor="@color/bg_black"
+        app:cardBackgroundColor="#800A0D14"
         app:cardCornerRadius="12dp"
         app:cardElevation="8dp"
         app:strokeColor="#33FFFFFF"
@@ -38,7 +36,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- Header -->
             <RelativeLayout
                 android:id="@+id/panel_header"
                 android:layout_width="match_parent"
@@ -66,7 +63,7 @@
                         android:layout_width="32dp"
                         android:layout_height="match_parent"
                         android:gravity="center"
-                        android:text="—"
+                        android:text="-"
                         android:textColor="#FFFFFF"
                         android:textSize="12sp"
                         android:textStyle="bold"
@@ -77,14 +74,13 @@
                         android:layout_width="32dp"
                         android:layout_height="match_parent"
                         android:gravity="center"
-                        android:text="✕"
+                        android:text="X"
                         android:textColor="#FFFFFF"
                         android:textSize="14sp"
                         android:background="?attr/selectableItemBackground" />
                 </LinearLayout>
             </RelativeLayout>
 
-            <!-- Body -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -95,30 +91,42 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Adjustments"
-                    android:textColor="@color/text_muted"
+                    android:textColor="@color/text_main"
                     android:textSize="11sp"
                     android:layout_marginBottom="8dp" />
 
-                <!-- Zoom -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="28dp"
                     android:gravity="center_vertical"
                     android:background="@color/inner_box_dark"
-                    android:paddingHorizontal="8dp"
                     android:layout_marginBottom="6dp"
                     android:orientation="horizontal">
+
                     <ImageView
                         android:layout_width="16dp"
                         android:layout_height="16dp"
+                        android:layout_marginStart="8dp"
                         android:src="@android:drawable/ic_menu_zoom"
                         app:tint="@color/text_main" />
+
                     <TextView
                         android:layout_width="48dp"
                         android:layout_height="wrap_content"
                         android:text=" Zoom"
                         android:textColor="@color/text_main"
                         android:textSize="10sp" />
+
+                    <TextView
+                        android:id="@+id/btn_zoom_minus"
+                        android:layout_width="24dp"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="-"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
                     <SeekBar
                         android:id="@+id/seek_zoom"
                         android:layout_width="0dp"
@@ -127,36 +135,60 @@
                         android:max="200"
                         android:progressTint="@color/text_main"
                         android:thumbTint="@color/text_main" />
+
+                    <TextView
+                        android:id="@+id/btn_zoom_plus"
+                        android:layout_width="24dp"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="+"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
                     <TextView
                         android:id="@+id/tv_zoom_val"
                         android:layout_width="36dp"
                         android:layout_height="wrap_content"
                         android:gravity="end"
+                        android:layout_marginEnd="8dp"
                         android:text="100%"
                         android:textColor="@color/text_main"
                         android:textSize="10sp" />
                 </LinearLayout>
 
-                <!-- Rotate -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="28dp"
                     android:gravity="center_vertical"
                     android:background="@color/inner_box_dark"
-                    android:paddingHorizontal="8dp"
                     android:layout_marginBottom="6dp"
                     android:orientation="horizontal">
+
                     <ImageView
                         android:layout_width="16dp"
                         android:layout_height="16dp"
+                        android:layout_marginStart="8dp"
                         android:src="@android:drawable/ic_menu_rotate"
                         app:tint="@color/text_main" />
+
                     <TextView
                         android:layout_width="48dp"
                         android:layout_height="wrap_content"
                         android:text=" Rotate"
                         android:textColor="@color/text_main"
                         android:textSize="10sp" />
+
+                    <TextView
+                        android:id="@+id/btn_rotate_minus"
+                        android:layout_width="24dp"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="-"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
                     <SeekBar
                         android:id="@+id/seek_rotate"
                         android:layout_width="0dp"
@@ -165,36 +197,60 @@
                         android:max="270"
                         android:progressTint="@color/text_main"
                         android:thumbTint="@color/text_main" />
+
+                    <TextView
+                        android:id="@+id/btn_rotate_plus"
+                        android:layout_width="24dp"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="+"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
                     <TextView
                         android:id="@+id/tv_rotate_val"
                         android:layout_width="36dp"
                         android:layout_height="wrap_content"
                         android:gravity="end"
-                        android:text="0°"
+                        android:layout_marginEnd="8dp"
+                        android:text="0&#176;"
                         android:textColor="@color/text_main"
                         android:textSize="10sp" />
                 </LinearLayout>
 
-                <!-- Volume -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="28dp"
                     android:gravity="center_vertical"
                     android:background="@color/inner_box_dark"
-                    android:paddingHorizontal="8dp"
-                    android:layout_marginBottom="12dp"
+                    android:layout_marginBottom="6dp"
                     android:orientation="horizontal">
+
                     <ImageView
                         android:layout_width="16dp"
                         android:layout_height="16dp"
-                        android:src="@android:drawable/ic_media_play"
+                        android:layout_marginStart="8dp"
+                        android:src="@android:drawable/ic_lock_silent_mode_off"
                         app:tint="@color/text_main" />
+
                     <TextView
                         android:layout_width="48dp"
                         android:layout_height="wrap_content"
                         android:text=" Volume"
                         android:textColor="@color/text_main"
                         android:textSize="10sp" />
+
+                    <TextView
+                        android:id="@+id/btn_volume_minus"
+                        android:layout_width="24dp"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="-"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
                     <SeekBar
                         android:id="@+id/seek_volume"
                         android:layout_width="0dp"
@@ -203,22 +259,95 @@
                         android:max="100"
                         android:progressTint="@color/text_main"
                         android:thumbTint="@color/text_main" />
+
+                    <TextView
+                        android:id="@+id/btn_volume_plus"
+                        android:layout_width="24dp"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="+"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
                     <TextView
                         android:id="@+id/tv_volume_val"
                         android:layout_width="36dp"
                         android:layout_height="wrap_content"
                         android:gravity="end"
+                        android:layout_marginEnd="8dp"
                         android:text="0%"
                         android:textColor="@color/text_main"
                         android:textSize="10sp" />
                 </LinearLayout>
 
-                <!-- Aspect Ratio -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="28dp"
+                    android:gravity="center_vertical"
+                    android:background="@color/inner_box_dark"
+                    android:layout_marginBottom="12dp"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:layout_marginStart="8dp"
+                        android:src="@android:drawable/ic_media_ff"
+                        app:tint="@color/text_main" />
+
+                    <TextView
+                        android:layout_width="48dp"
+                        android:layout_height="wrap_content"
+                        android:text=" Speed"
+                        android:textColor="@color/text_main"
+                        android:textSize="10sp" />
+
+                    <TextView
+                        android:id="@+id/btn_speed_minus"
+                        android:layout_width="24dp"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="-"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
+                    <SeekBar
+                        android:id="@+id/seek_speed"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:max="7"
+                        android:progressTint="@color/text_main"
+                        android:thumbTint="@color/text_main" />
+
+                    <TextView
+                        android:id="@+id/btn_speed_plus"
+                        android:layout_width="24dp"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:text="+"
+                        android:textColor="@color/text_main"
+                        android:textSize="16sp"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+
+                    <TextView
+                        android:id="@+id/tv_speed_val"
+                        android:layout_width="36dp"
+                        android:layout_height="wrap_content"
+                        android:gravity="end"
+                        android:layout_marginEnd="8dp"
+                        android:text="1.00x"
+                        android:textColor="@color/text_main"
+                        android:textSize="10sp" />
+                </LinearLayout>
+
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Aspect Ratio"
-                    android:textColor="@color/text_muted"
+                    android:textColor="@color/text_main"
                     android:textSize="11sp"
                     android:layout_marginBottom="8dp" />
 
@@ -274,13 +403,11 @@
                         app:cornerRadius="6dp" />
                 </LinearLayout>
 
-                <!-- D-Pad (Smaller) -->
                 <RelativeLayout
                     android:layout_width="120dp"
                     android:layout_height="120dp"
                     android:layout_gravity="center_horizontal">
 
-                    <!-- Top -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_pan_up"
                         android:layout_width="36dp"
@@ -294,7 +421,6 @@
                         <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:src="@android:drawable/arrow_up_float" app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
 
-                    <!-- Bottom -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_pan_down"
                         android:layout_width="36dp"
@@ -308,7 +434,6 @@
                         <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:src="@android:drawable/arrow_down_float" app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
 
-                    <!-- Left -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_pan_left"
                         android:layout_width="36dp"
@@ -322,7 +447,6 @@
                         <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:rotation="-90" android:src="@android:drawable/arrow_up_float" app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
 
-                    <!-- Right -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_pan_right"
                         android:layout_width="36dp"
@@ -336,7 +460,6 @@
                         <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:rotation="90" android:src="@android:drawable/arrow_up_float" app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
 
-                    <!-- Center Play/Pause -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_play_pause"
                         android:layout_width="40dp"
@@ -354,6 +477,7 @@
                             android:src="@android:drawable/ic_media_play"
                             app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
+
                 </RelativeLayout>
             </LinearLayout>
         </LinearLayout>

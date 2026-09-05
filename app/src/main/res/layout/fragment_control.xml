@@ -77,14 +77,12 @@
                 <RelativeLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content">
-
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/rotation"
                         android:textColor="@color/text_main"
                         android:textSize="14sp" />
-
                     <TextView
                         android:id="@+id/tv_rotation_val"
                         android:layout_width="wrap_content"
@@ -110,14 +108,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp">
-
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/zoom"
                         android:textColor="@color/text_main"
                         android:textSize="14sp" />
-
                     <TextView
                         android:id="@+id/tv_zoom_val"
                         android:layout_width="wrap_content"
@@ -134,6 +130,7 @@
                     android:layout_height="wrap_content"
                     android:valueFrom="0"
                     android:valueTo="200"
+                    app:stepSize="1"
                     app:thumbColor="@color/accent_red"
                     app:trackColorActive="@color/accent_red"
                     app:trackColorInactive="@color/card_stroke" />
@@ -142,14 +139,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp">
-
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/volume"
                         android:textColor="@color/text_main"
                         android:textSize="14sp" />
-
                     <TextView
                         android:id="@+id/tv_volume_val"
                         android:layout_width="wrap_content"
@@ -166,12 +161,44 @@
                     android:layout_height="wrap_content"
                     android:valueFrom="0"
                     android:valueTo="100"
+                    app:stepSize="1"
+                    app:thumbColor="@color/accent_red"
+                    app:trackColorActive="@color/accent_red"
+                    app:trackColorInactive="@color/card_stroke" />
+
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Speed"
+                        android:textColor="@color/text_main"
+                        android:textSize="14sp" />
+                    <TextView
+                        android:id="@+id/tv_speed_val"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_alignParentEnd="true"
+                        android:text="1.00x"
+                        android:textColor="@color/accent_red"
+                        android:textStyle="bold" />
+                </RelativeLayout>
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/slider_speed"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:valueFrom="0.25"
+                    android:valueTo="2.0"
+                    android:stepSize="0.25"
+                    android:value="1.0"
                     app:thumbColor="@color/accent_red"
                     app:trackColorActive="@color/accent_red"
                     app:trackColorInactive="@color/card_stroke" />
 
             </LinearLayout>
-
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
@@ -256,9 +283,7 @@
                         app:tint="@color/text_main" />
 
                 </RelativeLayout>
-
             </LinearLayout>
-
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
@@ -295,7 +320,6 @@
                     app:cornerRadius="10dp" />
 
             </LinearLayout>
-
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
@@ -359,12 +383,9 @@
                         android:textColor="@color/text_main"
                         app:backgroundTint="@color/inner_box_dark"
                         app:cornerRadius="8dp" />
+
                 </LinearLayout>
-
             </LinearLayout>
-
         </com.google.android.material.card.MaterialCardView>
-
     </LinearLayout>
-
 </ScrollView>
