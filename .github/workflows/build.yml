@@ -20,8 +20,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - name: Set up JDK 17
         uses: actions/setup-java@v6
@@ -37,7 +35,7 @@ jobs:
           add-job-summary: 'always'
 
       - name: Build APK
-        run: gradle assembleDebug --stacktrace --build-cache
+        run: gradle assembleDebug --stacktrace --build-cache --parallel --configuration-cache
 
       - name: Sign APK
         run: |
