@@ -258,8 +258,8 @@ public class FloatingWindowService extends Service {
         playPauseIcon.setImageResource(config.isPaused ?
              android.R.drawable.ic_media_play : android.R.drawable.ic_media_pause);
 
-        int activeColor = ContextCompat.getColor(this, R.color.accent_red);
-        int inactiveColor = ContextCompat.getColor(this, R.color.inner_box_dark);
+        int activeColor = android.graphics.Color.parseColor("#80FF2A42"); 
+        int inactiveColor = android.graphics.Color.parseColor("#400E1118");
 
         MaterialButton btnFit = floatingView.findViewById(R.id.btn_scale_fit);
         MaterialButton btnStretch = floatingView.findViewById(R.id.btn_scale_stretch);
