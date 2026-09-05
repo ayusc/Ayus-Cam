@@ -2,7 +2,6 @@ package com.vcam.ayuscam;
 
 import android.app.Application;
 import android.content.Context;
-import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -60,9 +59,11 @@ public class HookMain implements IXposedHookLoadPackage {
 
     private static GLVideoRenderer glVideoRenderer;
     private static GLVideoRenderer glVideoRenderer_1 = null;
+    private static GLVideoRenderer dataRenderer = null;
+    private static GLVideoRenderer dataRenderer_1 = null;
+    
     public static volatile byte[] data_buffer = null;
-    private static VideoToFrames dataDecoder;
-    private static VideoToFrames dataDecoder_1 = null;
+    private static VideoToFrames dataDecoder = null;
 
     private static Surface c2_reader_Surface = null;
     private static Surface c2_reader_Surface_1 = null;
@@ -71,13 +72,12 @@ public class HookMain implements IXposedHookLoadPackage {
     private static Surface activePreviewSurface = null;
     private static Surface activePreviewSurface_1 = null;
     private static Surface currentPlayingSurface = null;
-    private static Surface currentDataSurface = null;
 
     private static AppConfig cachedConfig = null;
     private static long lastCheckTime = 0;
 
     public static AppConfig getLiveConfig() {
-        if (cachedConfig == null || (System.currentTimeMillis() - lastCheckTime > 500)) {
+        if (cachedConfig == null || (System.currentTimeMillis() - lastCheckTime > 50)) {
             cachedConfig = AppConfig.loadForHook(video_path);
             lastCheckTime = System.currentTimeMillis();
         }
@@ -212,6 +212,32 @@ public class HookMain implements IXposedHookLoadPackage {
             });
         } catch (Throwable ignored) {}
 
+        // --- Prevent App Crashes from ImageReader NPE ---
+        try {
+            XposedHelpers.findAndHookMethod(ImageReader.class, "setOnImageAvailableListener", 
+                ImageReader.OnImageAvailableListener.class, Handler.class, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    if (param.args[0] != null) {
+                        final ImageReader.OnImageAvailableListener original = (ImageReader.OnImageAvailableListener) param.args[0];
+                        ImageReader.OnImageAvailableListener proxy = new ImageReader.OnImageAvailableListener() {
+                            @Override
+                            public void onImageAvailable(ImageReader reader) {
+                                try {
+                                    original.onImageAvailable(reader);
+                                } catch (NullPointerException e) {
+                                    XposedBridge.log("AyusCam: Prevented target app NPE in onImageAvailable");
+                                } catch (Exception e) {
+                                    XposedBridge.log("AyusCam: Prevented target app Exception in onImageAvailable");
+                                }
+                            }
+                        };
+                        param.args[0] = proxy;
+                    }
+                }
+            });
+        } catch (Throwable ignored) {}
+
         try {
             XC_MethodHook readerHook = new XC_MethodHook() {
                 @Override
@@ -330,7 +356,6 @@ public class HookMain implements IXposedHookLoadPackage {
                 @Override
                 protected void beforeHookedMethod(MethodHookParam param) {
                     stopMediaPlayback();
-                    stopDataPlayback();
                 }
             });
         } catch (Throwable ignored) {}
@@ -409,11 +434,10 @@ public class HookMain implements IXposedHookLoadPackage {
 
                         if (originalSurface.equals(c2_reader_Surface)) {
                             c2_reader_Surface = null;
-                            currentDataSurface = null;
-                            stopDataPlayback();
+                            if (dataRenderer != null) { dataRenderer.release(); dataRenderer = null; }
                         } else if (originalSurface.equals(c2_reader_Surface_1)) {
                             c2_reader_Surface_1 = null;
-                            if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
+                            if (dataRenderer_1 != null) { dataRenderer_1.release(); dataRenderer_1 = null; }
                         }
                     }
                     param.args[0] = getFakeSurface();
@@ -425,16 +449,23 @@ public class HookMain implements IXposedHookLoadPackage {
                 protected void beforeHookedMethod(MethodHookParam param) {
                     if (!isSubstitutionActive()) return;
                     if (activePreviewSurface != null) startMediaPlayback(activePreviewSurface);
+                    
                     if (activePreviewSurface_1 != null && glVideoRenderer_1 == null) {
                         glVideoRenderer_1 = new GLVideoRenderer(activePreviewSurface_1, getLiveConfig().getActiveMediaPath());
                         glVideoRenderer_1.start();
                     }
-                    if (c2_reader_Surface != null) startDataPlayback(c2_reader_Surface);
-                    if (c2_reader_Surface_1 != null && dataDecoder_1 == null) {
-                        dataDecoder_1 = new VideoToFrames();
-                        dataDecoder_1.setSaveFrames(VideoToFrames.OutputImageFormat.NV21);
-                        dataDecoder_1.setSurface(c2_reader_Surface_1);
-                        dataDecoder_1.decode(getLiveConfig().getActiveMediaPath());
+                    
+                    if (c2_reader_Surface != null && dataRenderer == null) {
+                        if ("VIDEO".equals(getLiveConfig().getActiveMediaType())) {
+                            dataRenderer = new GLVideoRenderer(c2_reader_Surface, getLiveConfig().getActiveMediaPath());
+                            dataRenderer.start();
+                        }
+                    }
+                    if (c2_reader_Surface_1 != null && dataRenderer_1 == null) {
+                        if ("VIDEO".equals(getLiveConfig().getActiveMediaType())) {
+                            dataRenderer_1 = new GLVideoRenderer(c2_reader_Surface_1, getLiveConfig().getActiveMediaPath());
+                            dataRenderer_1.start();
+                        }
                     }
                 }
             });
@@ -498,30 +529,6 @@ public class HookMain implements IXposedHookLoadPackage {
         });
     }
 
-    private static void startDataPlayback(Surface target) {
-        if (target == null || !target.isValid()) return;
-        if (target == currentDataSurface && dataDecoder != null) return;
-        currentDataSurface = target;
-        stopDataPlayback();
-
-        AppConfig config = getLiveConfig();
-        if ("VIDEO".equals(config.getActiveMediaType())) {
-            dataDecoder = new VideoToFrames();
-            dataDecoder.setSaveFrames(VideoToFrames.OutputImageFormat.NV21);
-            dataDecoder.setSurface(target);
-            try {
-                dataDecoder.decode(config.getActiveMediaPath());
-            } catch (Throwable ignored) {}
-        }
-    }
-
-    private static void stopDataPlayback() {
-        if (dataDecoder != null) {
-            dataDecoder.stopDecode();
-            dataDecoder = null;
-        }
-    }
-
     private void hookCamera2DeviceCallbacks(Class<?> stateCallbackClass) {
         if (!hooked_classes.add(stateCallbackClass)) return;
         try {
@@ -540,12 +547,13 @@ public class HookMain implements IXposedHookLoadPackage {
                     currentPlayingSurface = null;
                     c2_reader_Surface = null;
                     c2_reader_Surface_1 = null;
-                    currentDataSurface = null;
 
                     stopMediaPlayback();
                     if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
-                    stopDataPlayback();
-                    if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
+                    
+                    if (dataRenderer != null) { dataRenderer.release(); dataRenderer = null; }
+                    if (dataRenderer_1 != null) { dataRenderer_1.release(); dataRenderer_1 = null; }
+                    if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
                 }
             };
             XposedHelpers.findAndHookMethod(stateCallbackClass, "onClosed", CameraDevice.class, cleanupHook);
@@ -565,12 +573,13 @@ public class HookMain implements IXposedHookLoadPackage {
                     currentPlayingSurface = null;
                     c2_reader_Surface = null;
                     c2_reader_Surface_1 = null;
-                    currentDataSurface = null;
 
                     stopMediaPlayback();
                     if (glVideoRenderer_1 != null) { glVideoRenderer_1.release(); glVideoRenderer_1 = null; }
-                    stopDataPlayback();
-                    if (dataDecoder_1 != null) { dataDecoder_1.stopDecode(); dataDecoder_1 = null; }
+                    
+                    if (dataRenderer != null) { dataRenderer.release(); dataRenderer = null; }
+                    if (dataRenderer_1 != null) { dataRenderer_1.release(); dataRenderer_1 = null; }
+                    if (dataDecoder != null) { dataDecoder.stopDecode(); dataDecoder = null; }
                 }
             });
         } catch (Throwable ignored) {}
@@ -947,7 +956,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
                 }
 
-                if (System.currentTimeMillis() - lastCheckMod > 500) {
+                if (System.currentTimeMillis() - lastCheckMod > 50) {
                     localConfig = getLiveConfig();
                     lastCheckMod = System.currentTimeMillis();
                     if (mMediaPlayer != null) {

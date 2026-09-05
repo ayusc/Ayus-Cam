@@ -164,26 +164,22 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         try (Cursor cursor = requireContext().getContentResolver().query(uri, null, null, null, null)) {
             if (cursor != null && cursor.moveToFirst()) {
                 int nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (nameIndex != -1) result = cursor.getString(nameIndex);
+                if (nameIndex != -1) {
+                    result = cursor.getString(nameIndex);
+                }
             }
         } catch (Exception ignored) {}
 
-        if (result == null || result.matches("\\d+\\.\\w+") || result.matches("\\d+")) {
+        if (result == null) {
             String path = uri.getPath();
             if (path != null) {
                 int lastSlash = path.lastIndexOf('/');
                 if (lastSlash != -1 && lastSlash < path.length() - 1) {
-                    String possibleName = path.substring(lastSlash + 1);
-                    if (!possibleName.matches("\\d+") && !possibleName.matches("\\d+\\.\\w+")) {
-                        result = possibleName;
-                    }
+                    result = path.substring(lastSlash + 1);
                 }
             }
         }
 
-        if (result != null && (result.matches("\\d+\\.\\w+") || result.matches("\\d+"))) {
-            result = null; 
-        }
         return result;
     }
 
@@ -191,7 +187,7 @@ public class HomeFragment extends Fragment implements TextureView.SurfaceTexture
         if (uri == null) return;
         
         String displayName = extractRealName(uri);
-        if (displayName == null) {
+        if (displayName == null || displayName.isEmpty()) {
             displayName = "Selected " + ("IMAGE".equals(type) ? "Photo" : "Video");
         }
 

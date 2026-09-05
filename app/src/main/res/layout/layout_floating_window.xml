@@ -4,13 +4,14 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content">
 
+    <!-- Floating App Icon (Collapsed State) -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/floating_icon_container"
         android:layout_width="54dp"
         android:layout_height="54dp"
         app:cardCornerRadius="27dp"
         app:cardElevation="8dp"
-        app:cardBackgroundColor="@color/bg_black">
+        app:cardBackgroundColor="#B30A0D14">
         
         <ImageView
             android:id="@+id/floating_icon"
@@ -25,7 +26,7 @@
         android:layout_width="260dp"
         android:layout_height="wrap_content"
         android:visibility="gone"
-        app:cardBackgroundColor="#800A0D14"
+        app:cardBackgroundColor="#990A0D14"
         app:cardCornerRadius="12dp"
         app:cardElevation="8dp"
         app:strokeColor="#33FFFFFF"
@@ -36,11 +37,12 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
+            <!-- Header -->
             <RelativeLayout
                 android:id="@+id/panel_header"
                 android:layout_width="match_parent"
                 android:layout_height="36dp"
-                android:background="@color/accent_red_dark"
+                android:background="#808B0000"
                 android:paddingHorizontal="12dp">
 
                 <TextView
@@ -63,9 +65,9 @@
                         android:layout_width="32dp"
                         android:layout_height="match_parent"
                         android:gravity="center"
-                        android:text="-"
+                        android:text="—"
                         android:textColor="#FFFFFF"
-                        android:textSize="12sp"
+                        android:textSize="16sp"
                         android:textStyle="bold"
                         android:background="?attr/selectableItemBackground" />
 
@@ -74,13 +76,15 @@
                         android:layout_width="32dp"
                         android:layout_height="match_parent"
                         android:gravity="center"
-                        android:text="X"
+                        android:text="✕"
                         android:textColor="#FFFFFF"
-                        android:textSize="14sp"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
                         android:background="?attr/selectableItemBackground" />
                 </LinearLayout>
             </RelativeLayout>
 
+            <!-- Body -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -95,11 +99,12 @@
                     android:textSize="11sp"
                     android:layout_marginBottom="8dp" />
 
+                <!-- Zoom -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="28dp"
                     android:gravity="center_vertical"
-                    android:background="@color/inner_box_dark"
+                    android:background="#660E1118"
                     android:layout_marginBottom="6dp"
                     android:orientation="horizontal">
 
@@ -157,11 +162,12 @@
                         android:textSize="10sp" />
                 </LinearLayout>
 
+                <!-- Rotate -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="28dp"
                     android:gravity="center_vertical"
-                    android:background="@color/inner_box_dark"
+                    android:background="#660E1118"
                     android:layout_marginBottom="6dp"
                     android:orientation="horizontal">
 
@@ -219,11 +225,12 @@
                         android:textSize="10sp" />
                 </LinearLayout>
 
+                <!-- Volume -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="28dp"
                     android:gravity="center_vertical"
-                    android:background="@color/inner_box_dark"
+                    android:background="#660E1118"
                     android:layout_marginBottom="6dp"
                     android:orientation="horizontal">
 
@@ -281,11 +288,12 @@
                         android:textSize="10sp" />
                 </LinearLayout>
 
+                <!-- Speed -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="28dp"
                     android:gravity="center_vertical"
-                    android:background="@color/inner_box_dark"
+                    android:background="#660E1118"
                     android:layout_marginBottom="12dp"
                     android:orientation="horizontal">
 
@@ -343,6 +351,7 @@
                         android:textSize="10sp" />
                 </LinearLayout>
 
+                <!-- Aspect Ratio -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -370,7 +379,7 @@
                         android:text="Fill"
                         android:textSize="10sp"
                         android:textColor="@color/text_main"
-                        app:backgroundTint="@color/inner_box_dark"
+                        app:backgroundTint="#660E1118"
                         app:cornerRadius="6dp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -385,7 +394,7 @@
                         android:text="Stretch"
                         android:textSize="10sp"
                         android:textColor="@color/text_main"
-                        app:backgroundTint="@color/inner_box_dark"
+                        app:backgroundTint="#660E1118"
                         app:cornerRadius="6dp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -399,63 +408,68 @@
                         android:text="Fit"
                         android:textSize="10sp"
                         android:textColor="@color/text_main"
-                        app:backgroundTint="@color/inner_box_dark"
+                        app:backgroundTint="#660E1118"
                         app:cornerRadius="6dp" />
                 </LinearLayout>
 
+                <!-- D-Pad -->
                 <RelativeLayout
                     android:layout_width="120dp"
                     android:layout_height="120dp"
                     android:layout_gravity="center_horizontal">
 
+                    <!-- Top -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_pan_up"
                         android:layout_width="36dp"
                         android:layout_height="36dp"
                         android:layout_alignParentTop="true"
                         android:layout_centerHorizontal="true"
-                        app:cardBackgroundColor="@color/inner_box_dark"
+                        app:cardBackgroundColor="#660E1118"
                         app:cardCornerRadius="6dp"
-                        app:strokeColor="@color/card_stroke"
+                        app:strokeColor="#331C2331"
                         app:strokeWidth="1dp">
                         <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:src="@android:drawable/arrow_up_float" app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
 
+                    <!-- Bottom -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_pan_down"
                         android:layout_width="36dp"
                         android:layout_height="36dp"
                         android:layout_alignParentBottom="true"
                         android:layout_centerHorizontal="true"
-                        app:cardBackgroundColor="@color/inner_box_dark"
+                        app:cardBackgroundColor="#660E1118"
                         app:cardCornerRadius="6dp"
-                        app:strokeColor="@color/card_stroke"
+                        app:strokeColor="#331C2331"
                         app:strokeWidth="1dp">
                         <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:src="@android:drawable/arrow_down_float" app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
 
+                    <!-- Left -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_pan_left"
                         android:layout_width="36dp"
                         android:layout_height="36dp"
                         android:layout_alignParentStart="true"
                         android:layout_centerVertical="true"
-                        app:cardBackgroundColor="@color/inner_box_dark"
+                        app:cardBackgroundColor="#660E1118"
                         app:cardCornerRadius="6dp"
-                        app:strokeColor="@color/card_stroke"
+                        app:strokeColor="#331C2331"
                         app:strokeWidth="1dp">
                         <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:rotation="-90" android:src="@android:drawable/arrow_up_float" app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
 
+                    <!-- Right -->
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/btn_pan_right"
                         android:layout_width="36dp"
                         android:layout_height="36dp"
                         android:layout_alignParentEnd="true"
                         android:layout_centerVertical="true"
-                        app:cardBackgroundColor="@color/inner_box_dark"
+                        app:cardBackgroundColor="#660E1118"
                         app:cardCornerRadius="6dp"
-                        app:strokeColor="@color/card_stroke"
+                        app:strokeColor="#331C2331"
                         app:strokeWidth="1dp">
                         <ImageView android:layout_width="match_parent" android:layout_height="match_parent" android:padding="8dp" android:rotation="90" android:src="@android:drawable/arrow_up_float" app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
@@ -465,9 +479,9 @@
                         android:layout_width="40dp"
                         android:layout_height="40dp"
                         android:layout_centerInParent="true"
-                        app:cardBackgroundColor="@color/inner_box_dark"
+                        app:cardBackgroundColor="#660E1118"
                         app:cardCornerRadius="6dp"
-                        app:strokeColor="@color/card_stroke"
+                        app:strokeColor="#331C2331"
                         app:strokeWidth="1dp">
                         <ImageView
                             android:id="@+id/icon_play_pause"
@@ -477,7 +491,6 @@
                             android:src="@android:drawable/ic_media_play"
                             app:tint="@color/text_main" />
                     </com.google.android.material.card.MaterialCardView>
-
                 </RelativeLayout>
             </LinearLayout>
         </LinearLayout>
