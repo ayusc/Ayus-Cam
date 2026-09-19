@@ -14,6 +14,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, "uber_accounts.txt")
 PASSWORD_VALUE = "uber5555"
 HEADLESS = False
+PROMOTION_TEXT = "100% off your next ride"
 
 def execute_with_retry(action_func, retries=3):
     last_exception = None
@@ -66,8 +67,8 @@ def setup_sms_panel(sms_page):
     print("[*] Waiting for 'Connect With Us' popup...")
     try:
         ok_btn = sms_page.locator("button:has-text('OK, I Joined')")
-        execute_with_retry(lambda: ok_btn.wait_for(state="visible", timeout=50000))
-        execute_with_retry(lambda: ok_btn.click(timeout=50000))
+        execute_with_retry(lambda: ok_btn.wait_for(state="visible", timeout=15000))
+        execute_with_retry(lambda: ok_btn.click(timeout=5000))
     except Exception:
         print("[*] Popup not found or already closed.")
     print("[*] Navigating to Dashboard...")
@@ -97,10 +98,10 @@ def get_single_number(sms_page, row_index):
             execute_with_retry(lambda: action_btns[row_index].click(timeout=50000))
             time.sleep(1.5)
             error_popup = sms_page.locator("text=Sorry Due High Traffic").first
-            if error_popup.is_visible(timeout=50000):
+            if error_popup.is_visible(timeout=3000):
                 print(f"[-] High traffic error on row {row_index + 1}. Waiting 6 seconds and retrying...")
                 try:
-                    execute_with_retry(lambda: sms_page.locator("button[aria-label='Close']").first.click(timeout=50000))
+                    execute_with_retry(lambda: sms_page.locator("button[aria-label='Close']").first.click(timeout=3000))
                 except Exception:
                     pass
                 time.sleep(6)
@@ -137,7 +138,7 @@ def cancel_number(sms_page, current_number):
         cancel_btns = sms_page.locator("button:has-text('Cancel')").all()
         if index < len(cancel_btns):
             try:
-                execute_with_retry(lambda: cancel_btns[index].click(timeout=50000))
+                execute_with_retry(lambda: cancel_btns[index].click(timeout=5000))
             except Exception:
                 print(f"[-] Cancel button disabled or unclickable. Skipping click.")
             phone_input = sms_page.locator("input[type='text'], input").nth(index)
@@ -218,13 +219,13 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
         not_btn = page.locator(r"text=/Not .+\?/").first
         if not_btn.is_visible():
             print("[*] 'Not you?' detected before OTP. Clicking...")
-            execute_with_retry(lambda: not_btn.click(timeout=50000))
+            execute_with_retry(lambda: not_btn.click(timeout=5000))
             time.sleep(1)
         if page.locator("text=Welcome back").first.is_visible():
             send_sms_btn = page.get_by_text("Send code via SMS", exact=True).first
             if send_sms_btn.is_visible():
                 print("[*] 'Welcome back' screen detected. Clicking 'Send code via SMS'...")
-                execute_with_retry(lambda: send_sms_btn.click(timeout=50000))
+                execute_with_retry(lambda: send_sms_btn.click(timeout=5000))
                 time.sleep(1)
         if any(page.locator(sel).first.is_visible() for sel in lock_indicators):
             is_locked = True
@@ -250,7 +251,7 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
         if start_over_btn.is_visible():
             print("[*] Clicking 'Start Over' button...")
             try:
-                execute_with_retry(lambda: start_over_btn.click(timeout=50000))
+                execute_with_retry(lambda: start_over_btn.click(timeout=5000))
                 time.sleep(1)
             except Exception:
                 pass
@@ -269,16 +270,16 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
         print("[-] Timeout waiting for initial OTP. Clicking 'Resend code via SMS'...")
         resend_btn = page.locator("#alt-action-resend-sms").first
         try:
-            execute_with_retry(lambda: resend_btn.wait_for(state="visible", timeout=50000))
-            execute_with_retry(lambda: resend_btn.click(timeout=50000))
+            execute_with_retry(lambda: resend_btn.wait_for(state="visible", timeout=5000))
+            execute_with_retry(lambda: resend_btn.click(timeout=5000))
         except Exception:
             pass
         time.sleep(1)
         retry_btn = page.locator("button:has-text('Retry')").first
         try:
-            if retry_btn.is_visible(timeout=50000):
+            if retry_btn.is_visible(timeout=5000):
                 print("[*] Error popup detected. Clicking 'Retry'...")
-                execute_with_retry(lambda: retry_btn.click(timeout=50000))
+                execute_with_retry(lambda: retry_btn.click(timeout=5000))
         except Exception:
             pass
         otp_code = get_sms(sms_page, current_number["index"], timeout=50)
@@ -297,7 +298,7 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
     print("[+] OTP entered successfully !")
     time.sleep(2)
     incorrect_otp_msg = page.get_by_text("The SMS passcode you've entered is incorrect.").first
-    if incorrect_otp_msg.is_visible(timeout=50000):
+    if incorrect_otp_msg.is_visible(timeout=5000):
         print("[-] Incorrect SMS passcode detected. Discarding attempt.")
         return False
     reached_name_page = False
@@ -307,7 +308,7 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
             not_btn = page.locator(r"text=/Not .+\?/").first
             if not_btn.is_visible():
                 print("[*] 'Not you?' detected. Clicking to reach name screen...")
-                execute_with_retry(lambda: not_btn.click(timeout=50000))
+                execute_with_retry(lambda: not_btn.click(timeout=5000))
                 time.sleep(1)
         except Exception:
             pass
@@ -315,7 +316,7 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
             reset_btn = page.locator("button:has-text('Reset Account')").first
             if reset_btn.is_visible():
                 print("[*] 'Reset your account' screen detected. Clicking 'Reset Account'...")
-                execute_with_retry(lambda: reset_btn.click(timeout=50000))
+                execute_with_retry(lambda: reset_btn.click(timeout=5000))
                 time.sleep(1)
         except Exception:
             pass
@@ -371,7 +372,7 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
         execute_with_retry(lambda: get_ride_elem.wait_for(state="visible", timeout=50000))
         print("[*] Opened Get a ride page")
         try:
-            page.locator("text='100% off your next ride.'").first.wait_for(state="visible", timeout=3000)
+            page.locator(f"text='{PROMOTION_TEXT}'").first.wait_for(state="visible", timeout=3000)
             promo_applied = "YES"
             print("[+] Promotion applied: YES")
         except Exception:
@@ -413,15 +414,22 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
     print(f"[+] Found Uber Secret Key: {secret_key}")
     totp = pyotp.TOTP(secret_key)
     current_code = totp.now()
-    next_button = page.locator("//button[contains(text(), 'Next')]").first
-    execute_with_retry(lambda: next_button.click(timeout=50000))
-    totp_input = page.locator("input[type='text'], input").first
-    execute_with_retry(lambda: totp_input.wait_for(state="visible", timeout=50000))
-    execute_with_retry(lambda: totp_input.fill(current_code, timeout=50000))
-    page.keyboard.press("Enter")
+    try:
+        next_button = page.locator("//button[contains(text(), 'Next')]").first
+        next_button.click(timeout=5000)
+    except Exception:
+        pass
+    try:
+        totp_input = page.locator("input[type='text'], input").first
+        execute_with_retry(lambda: totp_input.wait_for(state="visible", timeout=50000))
+        execute_with_retry(lambda: totp_input.fill(current_code, timeout=50000))
+        page.keyboard.press("Enter")
+    except Exception as e:
+        print(f"[-] Failed to enter 2FA code: {e}")
+        return False
     try:
         confirm_button = page.locator("//button[contains(text(), 'Next')]").first
-        execute_with_retry(lambda: confirm_button.click(timeout=50000))
+        confirm_button.click(timeout=5000)
     except Exception:
         pass
     print("[*] Verifying 2FA setup success...")
@@ -484,15 +492,15 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
         print(f"[-] Error on 'Earn on your terms': {e}")
     earn_handled = False
     try:
-        if page.locator("text='Choose how you want to earn with Uber'").first.is_visible(timeout=50000) and not earn_handled:
+        if page.locator("text='Choose how you want to earn with Uber'").first.is_visible(timeout=10000) and not earn_handled:
             print("[*] Selecting 'Commercial car'...")
             commercial_opt = page.locator("text='Commercial car'").first
             execute_with_retry(lambda: commercial_opt.click(timeout=50000))
             time.sleep(1.5)
             try:
-                continue_btn = page.locator("button:has-text('Continue')").first
-                execute_with_retry(lambda: continue_btn.wait_for(state="visible", timeout=50000))
-                execute_with_retry(lambda: continue_btn.click(timeout=50000))
+                cont_btn = page.locator("button:has-text('Continue')").first
+                execute_with_retry(lambda: cont_btn.wait_for(state="visible", timeout=10000))
+                execute_with_retry(lambda: cont_btn.click(timeout=10000))
             except Exception as e:
                 print(f"[-] Error clicking generic continue: {e}")
             earn_handled = True
@@ -503,23 +511,23 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
     try:
         lang_heading = page.locator("text='Select your language'").first
         dropdown = page.locator('[data-baseweb="select"]').first
-        if (lang_heading.is_visible(timeout=50000) or dropdown.is_visible(timeout=50000)) and not language_handled:
+        if (lang_heading.is_visible(timeout=10000) or dropdown.is_visible(timeout=10000)) and not language_handled:
             print("[*] Selecting 'English' language...")
             language_handled = True
             try:
-                execute_with_retry(lambda: dropdown.wait_for(state="visible", timeout=50000))
-                execute_with_retry(lambda: dropdown.click(timeout=50000))
+                execute_with_retry(lambda: dropdown.wait_for(state="visible", timeout=10000))
+                execute_with_retry(lambda: dropdown.click(timeout=10000))
                 english_opt = page.get_by_text("English", exact=True).first
-                execute_with_retry(lambda: english_opt.wait_for(state="visible", timeout=50000))
-                execute_with_retry(lambda: english_opt.click(timeout=50000))
+                execute_with_retry(lambda: english_opt.wait_for(state="visible", timeout=10000))
+                execute_with_retry(lambda: english_opt.click(timeout=10000))
             except Exception as lang_error:
                 print(f"[!] Warning: Language select error: {lang_error}")
                 language_handled = False
             time.sleep(1.5)
             try:
-                continue_btn = page.locator("button:has-text('Continue')").first
-                execute_with_retry(lambda: continue_btn.wait_for(state="visible", timeout=50000))
-                execute_with_retry(lambda: continue_btn.click(timeout=50000))
+                cont_btn = page.locator("button:has-text('Continue')").first
+                execute_with_retry(lambda: cont_btn.wait_for(state="visible", timeout=10000))
+                execute_with_retry(lambda: cont_btn.click(timeout=10000))
             except Exception as e:
                 print(f"[-] Error clicking generic continue: {e}")
             time.sleep(2)
@@ -528,12 +536,12 @@ def run_automation(faker, current_serial, sms_page, page, current_number, manual
         language_handled = False
     try:
         cont_btn = page.locator("button:has-text('Continue')").first
-        if cont_btn.is_visible(timeout=50000):
-            if page.locator("text='Select your language'").first.is_visible(timeout=50000) and not language_handled:
+        if cont_btn.is_visible(timeout=5000):
+            if page.locator("text='Select your language'").first.is_visible(timeout=5000) and not language_handled:
                 pass
             else:
                 print("[*] Clicking additional 'Continue'...")
-                execute_with_retry(lambda: cont_btn.click(timeout=50000))
+                execute_with_retry(lambda: cont_btn.click(timeout=5000))
                 time.sleep(1.5)
     except Exception:
         pass
